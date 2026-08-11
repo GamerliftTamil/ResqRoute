@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import paho.mqtt.client as mqtt
 import os
 import threading
@@ -6,7 +7,7 @@ import time
 import uuid
 
 app = Flask(__name__)
-
+CORS(app)
 # ============================================================
 # MQTT CONFIGURATION
 # ============================================================
