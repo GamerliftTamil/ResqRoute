@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>ResQRoute - Emergency Traffic Control</title>
+
+    <!-- KEEPING THE EXISTING PAHO MQTT LIBRARY -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="page-shell">
+
+    <!-- =====================================================
+         HERO
+    ====================================================== -->
+
+    <header class="hero">
+
+        <div class="brand-badge">
+            🚑 ResQRoute
+        </div>
+
+        <h1>
+            Be quick. Report if there is an emergency.
+        </h1>
+
+        <p class="subtitle">
+            Emergency traffic control dashboard
+        </p>
+
+    </header>
+
+
+    <main>
+
+        <!-- =================================================
+             MANUAL ROUTE CONTROL
+        ================================================== -->
+
+        <section class="control-card">
+
+            <div class="section-title">
+                <span class="live-dot"></span>
+                Emergency Route Control
+            </div>
+
+
+            <div class="route-buttons">
+
+                <button
+                    id="route1Btn"
+                    class="route-btn route-left"
+                    onclick="sendRoute('ROUTE1')"
+                    disabled
+                >
+
+                    <span class="route-icon">
+                        ⬅
+                    </span>
+
+                    <span>
+                        <strong>ROUTE 1</strong>
+                        <small>LEFT GREEN</small>
+                    </span>
+
+                </button>
+
+
+                <button
+                    id="route2Btn"
+                    class="route-btn route-right"
+                    onclick="sendRoute('ROUTE2')"
+                    disabled
+                >
+
+                    <span class="route-icon">
+                        ➡
+                    </span>
+
+                    <span>
+                        <strong>ROUTE 2</strong>
+                        <small>RIGHT GREEN</small>
+                    </span>
+
+                </button>
+
+            </div>
+
+
+            <p id="status" class="status">
+                Connecting to server...
+            </p>
+
+        </section>
+
+
+        <!-- =================================================
+             EMERGENCY EVENT LOG
+        ================================================== -->
+
+        <section class="event-card">
+
+            <div class="event-header">
+
+                <div>
+
+                    <div class="section-title">
+                        📜 Emergency Log
+                    </div>
+
+                    <p class="event-description">
+                        History of emergency routes activated by ResQRoute.
+                    </p>
+
+                </div>
+
+
+                <button
+                    id="clearLogBtn"
+                    class="clear-btn"
+                    type="button"
+                >
+                    Clear Log
+                </button>
+
+            </div>
+
+
+            <div class="table-wrapper">
+
+                <table class="event-table">
+
+                    <thead>
+
+                        <tr>
+                            <th>Route</th>
+                            <th>Time</th>
+                            <th>Status</th>
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody id="eventLogBody">
+                        <!-- JavaScript adds events here -->
+                    </tbody>
+
+                </table>
+
+            </div>
+
+
+            <div
+                id="emptyLog"
+                class="empty-log"
+            >
+                No emergencies recorded.
+            </div>
+
+        </section>
+
+
+        <!-- =================================================
+             CCTV
+        ================================================== -->
+
+        <section class="cctv-card">
+
+            <div class="section-title">
+                📹 CCTV / Ambulance Detection
+            </div>
+
+            <p>
+                Phone-camera computer vision system.
+            </p>
+
+
+            <div class="cctv-placeholder">
+
+                <span>
+                    📱
+                </span>
+
+                <strong>
+                    Camera system ready
+                </strong>
+
+                <small>
+                    Phone → OpenCV → Ambulance Detection → ROUTE 1
+                </small>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <!-- =====================================================
+         FOOTER
+    ====================================================== -->
+
+    <footer>
+        ResQRoute • Emergency Traffic Management Demonstration
+    </footer>
+
+</div>
+
+
+<script>
+
+    // ============================================================
+    // MQTT CONFIGURATION
+    // ============================================================
+
+    const MQTT_HOST = "broker.emqx.io";
+    const MQTT_PORT = 8084;
+    const MQTT_PATH = "/mqtt";
+
+    const TOPIC = "resqroute/traffic_signal";
+
+    // IMPORTANT:
+    // This is where Flask sends AI detection notifications.
+    const STATUS_TOPIC = "resqroute/traffic_status";
+
+
+    // Flask backend used for manual admin approval requests
+    const BACKEND_URL = "http://192.168.0.13:5000";
+
+
+    // ============================================================
+    // DOM ELEMENTS
+    // ============================================================
+
+    const route1Btn =
+        document.getElementById("route1Btn");
+
+    const route2Btn =
+        document.getElementById("route2Btn");
+
+    const statusText =
+        document.getElementById("status");
+
+    const eventLogBody =
+        document.getElementById("eventLogBody");
+
+    const emptyLog =
+        document.getElementById("emptyLog");
+
+    const clearLogBtn =
+        document.getElementById("clearLogBtn");
+
+
+    // ============================================================
+    // LOCAL STORAGE
+    // ============================================================
+
+    const EVENT_LOG_KEY =
+        "resqroute_emergency_log";
+
+
+    // ============================================================
+    // AI COOLDOWN
+    //
+    // Prevents repeated AI MQTT messages from filling the
+    // event log if OpenCV detects the ambulance continuously.
+    // ============================================================
+
+    let aiRouteCooldown = false;
+
+
+    // ============================================================
+    // CREATE MQTT CLIENT
+    //
+    // DO NOT CHANGE THIS ARCHITECTURE.
+    // ============================================================
+
+    const client = new Paho.MQTT.Client(
+
+        MQTT_HOST,
+        MQTT_PORT,
+        MQTT_PATH,
+
+        "ResQRoute_Web_" +
+        Math.floor(
+            Math.random() * 1000000
+        )
+    );
+
+
+    // ============================================================
+    // MQTT MESSAGE RECEIVED
+    //
+    // THIS IS THE IMPORTANT PART FOR AI DETECTION.
+    // ============================================================
+
+    client.onMessageArrived = function(message) {
+
+        console.log(
+            "📩 MQTT message received:"
+        );
+
+        console.log(
+            "Topic:",
+            message.destinationName
+        );
+
+        console.log(
+            "Payload:",
+            message.payloadString
+        );
+
+
+        // --------------------------------------------------------
+        // Ignore messages from other topics
+        // --------------------------------------------------------
+
+        if (
+            message.destinationName !==
+            STATUS_TOPIC
+        ) {
+            return;
+        }
+
+
+        const payload =
+            message.payloadString.trim();
+
+
+        // ========================================================
+        // AI DETECTION → ROUTE 1
+        // ========================================================
+
+        if (
+            payload ===
+            "AI_DETECTION:ROUTE1"
+        ) {
+
+            console.log(
+                "🤖 AI DETECTION: ROUTE 1"
+            );
+
+
+            // Prevent duplicate logs during the
+            // same 8-second emergency cycle.
+
+            if (aiRouteCooldown) {
+
+                console.log(
+                    "AI event ignored because route is already active."
+                );
+
+                return;
+            }
+
+
+            aiRouteCooldown = true;
+
+
+            // ----------------------------------------------------
+            // UPDATE DASHBOARD
+            // ----------------------------------------------------
+
+            statusText.innerText =
+                "🤖 Ambulance detected — ROUTE 1 activated";
+
+            statusText.className =
+                "status activated";
+
+
+            // ----------------------------------------------------
+            // DISABLE MANUAL BUTTONS
+            // ----------------------------------------------------
+
+            route1Btn.disabled = true;
+            route2Btn.disabled = true;
+
+
+            // ----------------------------------------------------
+            // ADD AI EVENT TO LOG
+            // ----------------------------------------------------
+
+            addEventLog(
+                "ROUTE 1",
+                "Activated • AI Detection"
+            );
+
+
+            // ----------------------------------------------------
+            // RESET AFTER ESP ROUTE CYCLE
+            // ----------------------------------------------------
+
+            setTimeout(function() {
+
+                aiRouteCooldown = false;
+
+
+                if (
+                    client.isConnected()
+                ) {
+
+                    route1Btn.disabled = false;
+                    route2Btn.disabled = false;
+
+
+                    statusText.innerText =
+                        "🟢 Connected and Ready!";
+
+                    statusText.className =
+                        "status connected";
+                }
+
+            }, 8500);
+        }
+    };
+
+
+    // ============================================================
+    // MQTT CONNECTION LOST
+    // ============================================================
+
+    client.onConnectionLost =
+        function(responseObject) {
+
+            console.log(
+                "MQTT connection lost:",
+                responseObject.errorMessage
+            );
+
+
+            route1Btn.disabled = true;
+            route2Btn.disabled = true;
+
+
+            statusText.innerText =
+                "🔴 Connection lost. Please refresh.";
+
+            statusText.className =
+                "status error";
+        };
+
+
+    // ============================================================
+    // MQTT CONNECT
+    // ============================================================
+
+    client.connect({
+
+        useSSL: true,
+
+        timeout: 15,
+
+        cleanSession: true,
+
+
+        onSuccess: function() {
+
+            console.log(
+                "🟢 Successfully connected to EMQX!"
+            );
+
+
+            // ====================================================
+            // SUBSCRIBE TO AI STATUS TOPIC
+            // ====================================================
+
+            client.subscribe(
+                STATUS_TOPIC,
+                {
+                    qos: 1,
+
+                    onSuccess: function() {
+
+                        console.log(
+                            "📡 Subscribed to:",
+                            STATUS_TOPIC
+                        );
+
+                    },
+
+                    onFailure: function(error) {
+
+                        console.error(
+                            "❌ Failed to subscribe:",
+                            error
+                        );
+
+                    }
+                }
+            );
+
+
+            // ====================================================
+            // ENABLE MANUAL CONTROLS
+            // ====================================================
+
+            route1Btn.disabled = false;
+            route2Btn.disabled = false;
+
+
+            statusText.innerText =
+                "🟢 Connected and Ready!";
+
+            statusText.className =
+                "status connected";
+        },
+
+
+        onFailure: function(error) {
+
+            console.error(
+                "❌ MQTT connection failed:",
+                error
+            );
+
+
+            route1Btn.disabled = true;
+            route2Btn.disabled = true;
+
+
+            statusText.innerText =
+                "🔴 Connection failed: " +
+                error.errorMessage;
+
+            statusText.className =
+                "status error";
+        }
+
+    });
+
+
+    // ============================================================
+    // GET SAVED EVENT LOG
+    // ============================================================
+
+    function getEventLogs() {
+
+        try {
+
+            const saved =
+                localStorage.getItem(
+                    EVENT_LOG_KEY
+                );
+
+
+            if (!saved) {
+                return [];
+            }
+
+
+            const parsed =
+                JSON.parse(saved);
+
+
+            if (
+                !Array.isArray(parsed)
+            ) {
+                return [];
+            }
+
+
+            return parsed;
+
+        }
+        catch (error) {
+
+            console.error(
+                "Could not read event log:",
+                error
+            );
+
+            return [];
+        }
+    }
+
+
+    // ============================================================
+    // SAVE EVENT LOG
+    // ============================================================
+
+    function saveEventLogs(logs) {
+
+        try {
+
+            localStorage.setItem(
+                EVENT_LOG_KEY,
+                JSON.stringify(logs)
+            );
+
+        }
+        catch (error) {
+
+            console.error(
+                "Could not save event log:",
+                error
+            );
+        }
+    }
+
+
+    // ============================================================
+    // ADD EVENT
+    // ============================================================
+
+    function addEventLog(
+        route,
+        status
+    ) {
+
+        const logs =
+            getEventLogs();
+
+
+        const now =
+            new Date();
+
+
+        const time =
+            now.toLocaleTimeString(
+                [],
+                {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    second: "2-digit"
+                }
+            );
+
+
+        const event = {
+
+            route: route,
+
+            time: time,
+
+            status: status
+
+        };
+
+
+        // Newest event first
+        logs.unshift(event);
+
+
+        // Keep maximum 100 events
+        const limitedLogs =
+            logs.slice(0, 100);
+
+
+        saveEventLogs(
+            limitedLogs
+        );
+
+
+        renderEventLog();
+    }
+
+
+    // ============================================================
+    // RENDER EVENT LOG
+    // ============================================================
+
+    function renderEventLog() {
+
+        const logs =
+            getEventLogs();
+
+
+        eventLogBody.innerHTML = "";
+
+
+        // --------------------------------------------------------
+        // EMPTY STATE
+        // --------------------------------------------------------
+
+        if (
+            logs.length === 0
+        ) {
+
+            emptyLog.style.display =
+                "block";
+
+            return;
+        }
+
+
+        emptyLog.style.display =
+            "none";
+
+
+        // --------------------------------------------------------
+        // CREATE TABLE ROWS
+        // --------------------------------------------------------
+
+        logs.forEach(
+            function(event) {
+
+                const row =
+                    document.createElement(
+                        "tr"
+                    );
+
+
+                const routeCell =
+                    document.createElement(
+                        "td"
+                    );
+
+                routeCell.textContent =
+                    event.route;
+
+
+                const timeCell =
+                    document.createElement(
+                        "td"
+                    );
+
+                timeCell.textContent =
+                    event.time;
+
+
+                const statusCell =
+                    document.createElement(
+                        "td"
+                    );
+
+                statusCell.textContent =
+                    event.status;
+
+
+                statusCell.className =
+                    "status-cell";
+
+
+                row.appendChild(
+                    routeCell
+                );
+
+                row.appendChild(
+                    timeCell
+                );
+
+                row.appendChild(
+                    statusCell
+                );
+
+
+                eventLogBody.appendChild(
+                    row
+                );
+
+            }
+        );
+    }
+
+
+    // ============================================================
+    // CLEAR LOG
+    // ============================================================
+
+    clearLogBtn.addEventListener(
+        "click",
+        function() {
+
+            const logs =
+                getEventLogs();
+
+
+            if (
+                logs.length === 0
+            ) {
+                return;
+            }
+
+
+            const confirmed =
+                confirm(
+                    "Clear all emergency event logs?"
+                );
+
+
+            if (!confirmed) {
+                return;
+            }
+
+
+            localStorage.removeItem(
+                EVENT_LOG_KEY
+            );
+
+
+            renderEventLog();
+
+        }
+    );
+
+
+    // ============================================================
+    // MANUAL ROUTE
+    // ============================================================
+
+    async function sendRoute(route) {
+
+        // --------------------------------------------------------
+        // Prevent another request while this one is being handled
+        // --------------------------------------------------------
+
+        route1Btn.disabled = true;
+        route2Btn.disabled = true;
+
+        const routeName =
+            route === "ROUTE1"
+                ? "ROUTE 1"
+                : "ROUTE 2";
+
+
+        statusText.innerText =
+            `📨 ${routeName} request sent to Traffic Control`;
+
+        statusText.className =
+            "status activated";
+
+
+        try {
+
+            // ====================================================
+            // SEND REQUEST TO FLASK
+            //
+            // IMPORTANT:
+            // Do NOT send MQTT directly from the website.
+            // Flask creates the admin request.
+            // ====================================================
+
+            const response =
+                await fetch(
+                    `${BACKEND_URL}/api/route-request`,
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body: JSON.stringify({
+                            route: route,
+                            source: "MANUAL"
+                        })
+                    }
+                );
+
+
+            const data =
+                await response.json();
+
+
+            // ----------------------------------------------------
+            // BACKEND REJECTED REQUEST
+            // ----------------------------------------------------
+
+            if (!response.ok || !data.success) {
+
+                throw new Error(
+                    data.error ||
+                    "Could not create emergency request"
+                );
+            }
+
+
+            console.log(
+                "📨 Emergency request created:",
+                data
+            );
+
+
+            // ----------------------------------------------------
+            // IMPORTANT:
+            // Do NOT add the event log here.
+            //
+            // The route has NOT been activated yet.
+            // The admin still needs to ACCEPT it.
+            // ----------------------------------------------------
+
+
+            statusText.innerText =
+                `🟡 ${routeName} awaiting Traffic Control approval`;
+
+            statusText.className =
+                "status activated";
+
+
+            // ----------------------------------------------------
+            // Keep buttons disabled while admin processes request.
+            //
+            // The admin system has its own 10-second timeout.
+            // After that, allow the main page to request again.
+            // ----------------------------------------------------
+
+            setTimeout(
+                function() {
+
+                    if (
+                        client.isConnected()
+                    ) {
+
+                        route1Btn.disabled = false;
+                        route2Btn.disabled = false;
+
+                        statusText.innerText =
+                            "🟢 Connected and Ready!";
+
+                        statusText.className =
+                            "status connected";
+                    }
+
+                },
+                11000
+            );
+
+
+        }
+        catch (error) {
+
+            console.error(
+                "❌ Route request failed:",
+                error
+            );
+
+
+            // ----------------------------------------------------
+            // Re-enable buttons because request failed
+            // ----------------------------------------------------
+
+            route1Btn.disabled = false;
+            route2Btn.disabled = false;
+
+
+            statusText.innerText =
+                "❌ Could not send emergency request.";
+
+            statusText.className =
+                "status error";
+
+
+            alert(
+                "Could not contact the ResQRoute backend.\n\n"
+                + error.message
+            );
+        }
+    }
+
+
+
+    // ============================================================
+    // LOAD EXISTING LOGS
+    // ============================================================
+
+    renderEventLog();
+
+
+</script>
+
+</body>
+</html>
