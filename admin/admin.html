@@ -810,33 +810,229 @@
     );
 
 
+    <script>
     // =========================================================
-    // INITIAL START
+    // AUTO-UPDATE DASHBOARD
+    // =========================================================
+
+    let polling = false;
+
+    async function updateDashboard() {
+
+        // Prevent overlapping requests
+        if (polling) return;
+
+        polling = true;
+
+        try {
+
+            const response = await fetch(
+                `${BACKEND_URL}/api/requests?t=${Date.now()}`,
+                {
+                    method: "GET",
+                    cache: "no-store",
+                    headers: {
+                        "Cache-Control": "no-cache",
+                        "Pragma": "no-cache"
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(
+                    `Backend returned ${response.status}`
+                );
+            }
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(
+                    data.error || "Backend request failed"
+                );
+            }
+
+            // =================================================
+            // NO REQUEST
+            // =================================================
+
+            if (!data.request) {
+
+                if (
+                    requestCard.classList.contains("hidden") &&
+                    resultCard.classList.contains("hidden")
+                ) {
+                    waitingCard.classList.remove("hidden");
+                }
+
+                currentRequestId = null;
+
+                return;
+            }
+
+            // =================================================
+            // REQUEST EXISTS
+            // =================================================
+
+            const req = data.request;
+
+            console.log(
+                "📡 Dashboard update:",
+                req
+            );
+
+            // =================================================
+            // NEW PENDING REQUEST
+            // =================================================
+
+            if (
+                req.status === "PENDING" &&
+                currentRequestId !== req.id
+            ) {
+
+                currentRequestId = req.id;
+
+                showRequest(req);
+
+                console.log(
+                    "🚨 NEW REQUEST:",
+                    req.id,
+                    req.route
+                );
+
+                return;
+            }
+
+            // =================================================
+            // EXISTING PENDING REQUEST
+            // Update countdown continuously
+            // =================================================
+
+            if (
+                req.status === "PENDING" &&
+                currentRequestId === req.id
+            ) {
+
+                if (
+                    typeof req.remaining_seconds === "number"
+                ) {
+
+                    const seconds = Math.ceil(
+                        req.remaining_seconds
+                    );
+
+                    countdown.textContent = seconds;
+
+                    if (seconds <= 3) {
+
+                        countdown.classList.add(
+                            "urgent"
+                        );
+
+                    } else {
+
+                        countdown.classList.remove(
+                            "urgent"
+                        );
+                    }
+                }
+
+                return;
+            }
+
+            // =================================================
+            // REQUEST PROCESSED
+            // =================================================
+
+            if (
+                req.id === currentRequestId &&
+                req.status !== "PENDING"
+            ) {
+
+                console.log(
+                    "📋 Request status changed:",
+                    req.status
+                );
+
+                if (
+                    lastStatus !== req.status
+                ) {
+
+                    lastStatus = req.status;
+
+                    showResult(req);
+                }
+            }
+
+        } catch (error) {
+
+            console.error(
+                "❌ Dashboard update failed:",
+                error
+            );
+
+        } finally {
+
+            polling = false;
+        }
+    }
+
+
+    // =========================================================
+    // BUTTONS
+    // =========================================================
+
+    acceptBtn.addEventListener(
+        "click",
+        acceptRequest
+    );
+
+    denyBtn.addEventListener(
+        "click",
+        denyRequest
+    );
+
+
+    // =========================================================
+    // START DASHBOARD
     // =========================================================
 
     async function startDashboard() {
 
+        console.log(
+            "🚦 ResQRoute Admin Dashboard starting..."
+        );
+
         await checkBackend();
 
-        await checkRequest();
+        await updateDashboard();
 
+        console.log(
+            "🟢 Dashboard auto-update started"
+        );
     }
 
 
     startDashboard();
 
 
-    // Check backend every 5 seconds
+    // =========================================================
+    // AUTO UPDATE EVERY 1 SECOND
+    // =========================================================
+
     setInterval(
-        checkBackend,
-        5000
+        updateDashboard,
+        1000
     );
 
 
-    // Check requests every second
+    // =========================================================
+    // BACKEND STATUS EVERY 5 SECONDS
+    // =========================================================
+
     setInterval(
-        checkRequest,
-        1000
+        checkBackend,
+        5000
     );
 
 </script>
