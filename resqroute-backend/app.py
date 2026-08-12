@@ -27,7 +27,7 @@ STATUS_TOPIC = "resqroute/traffic_status"
 
 
 # ============================================================
-# ADMIN REQUEST CONFIGURATION
+# REQUEST CONFIGURATION
 # ============================================================
 
 REQUEST_TIMEOUT = 10
@@ -45,7 +45,6 @@ mqtt_client = mqtt.Client(
     mqtt.CallbackAPIVersion.VERSION2
 )
 
-# Automatically retry connection
 mqtt_client.reconnect_delay_set(
     min_delay=2,
     max_delay=30
@@ -53,71 +52,96 @@ mqtt_client.reconnect_delay_set(
 
 
 # ============================================================
-# MQTT CONNECT CALLBACK
+# MQTT CONNECT
 # ============================================================
 
 def on_connect(client, userdata, flags, reason_code, properties):
 
     print()
     print("==========================================")
-    print("CONNECTED TO EMQX MQTT BROKER")
+    print("✅ CONNECTED TO EMQX MQTT BROKER")
     print("==========================================")
     print(f"Broker: {MQTT_BROKER}:{MQTT_PORT}")
-    print(f"Signal topic: {SIGNAL_TOPIC}")
-    print(f"Status topic: {STATUS_TOPIC}")
     print()
 
-    # Subscribe every time we reconnect
-    result, mid = client.subscribe(
-        STATUS_TOPIC,
-        qos=1
-    )
+    try:
 
-    if result == mqtt.MQTT_ERR_SUCCESS:
-        print(f"Subscribed to: {STATUS_TOPIC}")
-    else:
-        print(f"⚠️ Subscription failed: {result}")
+        result, mid = client.subscribe(
+            STATUS_TOPIC,
+            qos=1
+        )
+
+        if result == mqtt.MQTT_ERR_SUCCESS:
+
+            print(
+                f"✅ Subscribed to: {STATUS_TOPIC}",
+                flush=True
+            )
+
+        else:
+
+            print(
+                f"❌ Subscription failed: {result}",
+                flush=True
+            )
+
+    except Exception as error:
+
+        print(
+            f"❌ Subscribe error: {error}",
+            flush=True
+        )
 
     print()
 
 
 # ============================================================
-# MQTT DISCONNECT CALLBACK
+# MQTT DISCONNECT
 # ============================================================
 
-def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
+def on_disconnect(
+    client,
+    userdata,
+    disconnect_flags,
+    reason_code,
+    properties
+):
 
     print()
     print("==========================================")
     print("⚠️ MQTT DISCONNECTED")
     print("==========================================")
     print(f"Reason: {reason_code}")
-    print("Paho will automatically reconnect...")
+    print("Paho will reconnect...")
     print()
 
 
 # ============================================================
-# MQTT MESSAGE CALLBACK
+# MQTT MESSAGE
 # ============================================================
 
 def on_message(client, userdata, msg):
 
     try:
+
         payload = msg.payload.decode("utf-8")
 
     except Exception:
+
         payload = str(msg.payload)
 
     print()
     print("==========================================")
-    print("MQTT MESSAGE RECEIVED")
+    print("📨 MQTT MESSAGE RECEIVED")
     print("==========================================")
     print(f"Topic:   {msg.topic}")
     print(f"Payload: {payload}")
+    print("==========================================")
     print()
 
 
 # Register callbacks
+
 mqtt_client.on_connect = on_connect
 mqtt_client.on_disconnect = on_disconnect
 mqtt_client.on_message = on_message
@@ -131,7 +155,7 @@ def mqtt_loop():
 
     print()
     print("==========================================")
-    print("STARTING MQTT CONNECTION")
+    print("🚀 STARTING MQTT THREAD")
     print("==========================================")
     print()
 
@@ -140,8 +164,9 @@ def mqtt_loop():
         try:
 
             print(
-                f"Connecting to MQTT broker "
-                f"{MQTT_BROKER}:{MQTT_PORT}..."
+                f"🔌 Connecting to "
+                f"{MQTT_BROKER}:{MQTT_PORT}...",
+                flush=True
             )
 
             mqtt_client.connect(
@@ -150,13 +175,16 @@ def mqtt_loop():
                 60
             )
 
-            print("MQTT socket connected.")
-            print("Starting persistent MQTT loop...")
+            print(
+                "✅ MQTT socket connected",
+                flush=True
+            )
 
-            # This stays running and handles:
-            # - incoming messages
-            # - outgoing messages
-            # - automatic reconnects
+            print(
+                "🔄 Starting persistent MQTT loop...",
+                flush=True
+            )
+
             mqtt_client.loop_forever(
                 retry_first_connection=True
             )
@@ -175,6 +203,7 @@ def mqtt_loop():
 
 
 # Start MQTT thread
+
 mqtt_thread = threading.Thread(
     target=mqtt_loop,
     daemon=True
@@ -184,7 +213,7 @@ mqtt_thread.start()
 
 
 # ============================================================
-# SEND MQTT STATUS
+# SEND STATUS MESSAGE
 # ============================================================
 
 def send_status(message):
@@ -192,8 +221,8 @@ def send_status(message):
     if not mqtt_client.is_connected():
 
         print(
-            f"⚠️ MQTT disconnected - "
-            f"status NOT sent: {message}",
+            f"⚠️ MQTT offline. "
+            f"Status not sent: {message}",
             flush=True
         )
 
@@ -207,15 +236,10 @@ def send_status(message):
             qos=1
         )
 
-        print(
-            f"📡 Status publish result: {result.rc}",
-            flush=True
-        )
-
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
 
             print(
-                "⚠️ Failed to publish status",
+                f"❌ Status publish failed: {result.rc}",
                 flush=True
             )
 
@@ -271,7 +295,7 @@ def activate_route(route, source):
     )
 
     # --------------------------------------------------------
-    # Check MQTT
+    # MQTT CONNECTION CHECK
     # --------------------------------------------------------
 
     if not mqtt_client.is_connected():
@@ -284,13 +308,14 @@ def activate_route(route, source):
         return False
 
     # --------------------------------------------------------
-    # Publish route
+    # PUBLISH ROUTE
     # --------------------------------------------------------
 
     try:
 
         print(
-            f"📡 Publishing {route}...",
+            f"📡 Publishing {route} "
+            f"to {SIGNAL_TOPIC}...",
             flush=True
         )
 
@@ -308,13 +333,12 @@ def activate_route(route, source):
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
 
             print(
-                f"❌ MQTT publish failed: {result.rc}",
+                "❌ MQTT publish failed",
                 flush=True
             )
 
             return False
 
-        # Wait for Paho to actually send it
         result.wait_for_publish(
             timeout=5
         )
@@ -322,21 +346,14 @@ def activate_route(route, source):
         if not result.is_published():
 
             print(
-                "❌ MQTT message was not confirmed "
-                "as published",
+                "❌ MQTT message was not confirmed",
                 flush=True
             )
 
             return False
 
         print(
-            f"✅ MQTT message successfully sent: "
-            f"{route}",
-            flush=True
-        )
-
-        print(
-            f"📡 Topic: {SIGNAL_TOPIC}",
+            f"✅ MQTT message successfully sent: {route}",
             flush=True
         )
 
@@ -350,18 +367,18 @@ def activate_route(route, source):
         return False
 
     # --------------------------------------------------------
-    # Print activation
+    # LOG
     # --------------------------------------------------------
 
     print()
-    print("===================================")
+    print("==========================================")
     print(f"🚦 {route} ACTIVATED")
     print(f"Source: {source}")
-    print("===================================")
+    print("==========================================")
     print()
 
     # --------------------------------------------------------
-    # Notify website
+    # NOTIFY STATUS
     # --------------------------------------------------------
 
     send_status(
@@ -372,133 +389,126 @@ def activate_route(route, source):
 
 
 # ============================================================
-# CREATE EMERGENCY REQUEST
+# CREATE REQUEST
 # ============================================================
 
 def create_request(route, source):
+
     global pending_request
 
     route = str(route).upper()
+    source = str(source)
 
     if route not in ["ROUTE1", "ROUTE2"]:
+
         return None, "Invalid route"
 
     now = time.time()
 
+    # --------------------------------------------------------
+    # CREATE REQUEST SAFELY
+    # --------------------------------------------------------
+
     with request_lock:
 
-        # ------------------------------------------------
-        # CLEAR STALE REQUEST
-        # ------------------------------------------------
+        # Remove stale request
         if pending_request is not None:
 
-            age = now - pending_request["created_at"]
+            age = (
+                now -
+                pending_request["created_at"]
+            )
 
-            # If older than timeout + 5 seconds,
-            # consider it dead/stale.
             if age > REQUEST_TIMEOUT + 5:
 
                 print(
-                    f"🧹 Clearing stale request: "
+                    f"🧹 Removing stale request "
                     f"{pending_request['id']}",
                     flush=True
                 )
 
                 pending_request = None
 
-        # ------------------------------------------------
-        # CHECK AGAIN
-        # ------------------------------------------------
+        # Still pending?
         if pending_request is not None:
 
             return None, (
                 "Another emergency request is already pending"
             )
 
-        # ------------------------------------------------
-        # CREATE NEW REQUEST
-        # ------------------------------------------------
-        request_id = str(uuid.uuid4())[:8]
+        # Create ID
+        request_id = str(
+            uuid.uuid4()
+        )[:8]
 
         pending_request = {
+
             "id": request_id,
+
             "route": route,
+
             "source": source,
+
             "created_at": now,
+
             "status": "PENDING"
+
         }
 
         request_copy = pending_request.copy()
 
+    # --------------------------------------------------------
+    # PRINT
+    # --------------------------------------------------------
+
     print()
-    print("===================================")
+    print("==========================================")
     print("🚨 NEW EMERGENCY REQUEST")
+    print("==========================================")
     print(f"ID:     {request_id}")
     print(f"Route:  {route}")
     print(f"Source: {source}")
-    print("===================================")
-    print(flush=True)
-
-    send_status(
-        f"REQUEST_CREATED:{request_id}:{route}:{source}"
-    )
-
-    timeout_thread = threading.Thread(
-        target=request_timeout_worker,
-        args=(request_id,),
-        daemon=True
-    )
-
-    timeout_thread.start()
-
-    return request_copy, None
-    # --------------------------------------------------------
-    # Print request
-    # --------------------------------------------------------
-
-    print()
-    print("===================================")
-    print("🚨 NEW EMERGENCY REQUEST")
-    print(f"ID:     {request_id}")
-    print(f"Route:  {route}")
-    print(f"Source: {source}")
-    print("===================================")
+    print("==========================================")
     print()
 
     # --------------------------------------------------------
-    # Notify admin website
+    # NOTIFY ADMIN
     # --------------------------------------------------------
 
     send_status(
-        f"REQUEST_CREATED:{request_id}:{route}:{source}"
+        f"REQUEST_CREATED:"
+        f"{request_id}:"
+        f"{route}:"
+        f"{source}"
     )
 
     # --------------------------------------------------------
-    # Start timeout watcher
+    # START TIMEOUT THREAD
     # --------------------------------------------------------
 
-    timeout_thread = threading.Thread(
+    threading.Thread(
         target=request_timeout_worker,
         args=(request_id,),
         daemon=True
-    )
-
-    timeout_thread.start()
+    ).start()
 
     return request_copy, None
 
 
 # ============================================================
-# REQUEST TIMEOUT
+# REQUEST TIMEOUT WORKER
 # ============================================================
 
 def request_timeout_worker(request_id):
 
     global pending_request
 
-    time.sleep(
-        REQUEST_TIMEOUT
-    )
+    # Wait for admin
+    time.sleep(REQUEST_TIMEOUT)
+
+    # --------------------------------------------------------
+    # CHECK REQUEST
+    # --------------------------------------------------------
 
     with request_lock:
 
@@ -513,19 +523,21 @@ def request_timeout_worker(request_id):
 
         route = pending_request["route"]
 
-        pending_request["status"] = "AUTO_APPROVED"
+        pending_request["status"] = "AUTO_APPROVING"
 
-        pending_request["decision"] = "TIMEOUT"
-
-        pending_request["decision_at"] = time.time()
+    # --------------------------------------------------------
+    # ACTIVATE WITHOUT LOCK
+    # --------------------------------------------------------
 
     print()
-    print("===================================")
+    print("==========================================")
     print("⏱️ ADMIN TIMEOUT")
-    print(f"Route: {route}")
-    print("No response received.")
+    print("==========================================")
+    print(f"Request: {request_id}")
+    print(f"Route:   {route}")
+    print("No admin response.")
     print("Automatically activating route.")
-    print("===================================")
+    print("==========================================")
     print()
 
     success = activate_route(
@@ -533,22 +545,9 @@ def request_timeout_worker(request_id):
         "AUTO_TIMEOUT"
     )
 
-    if success:
-
-        send_status(
-            f"REQUEST_AUTO_APPROVED:"
-            f"{request_id}:{route}"
-        )
-
-    else:
-
-        send_status(
-            f"REQUEST_ACTIVATION_FAILED:"
-            f"{request_id}:{route}"
-        )
-
-    # Keep request visible briefly
-    time.sleep(2)
+    # --------------------------------------------------------
+    # UPDATE REQUEST
+    # --------------------------------------------------------
 
     with request_lock:
 
@@ -558,11 +557,89 @@ def request_timeout_worker(request_id):
             pending_request["id"] == request_id
         ):
 
+            if success:
+
+                pending_request["status"] = (
+                    "AUTO_APPROVED"
+                )
+
+                pending_request["decision"] = (
+                    "TIMEOUT"
+                )
+
+                pending_request["decision_at"] = (
+                    time.time()
+                )
+
+            else:
+
+                pending_request["status"] = (
+                    "ACTIVATION_FAILED"
+                )
+
+                pending_request["decision"] = (
+                    "TIMEOUT"
+                )
+
+                pending_request["decision_at"] = (
+                    time.time()
+                )
+
+    # --------------------------------------------------------
+    # STATUS
+    # --------------------------------------------------------
+
+    if success:
+
+        send_status(
+            f"REQUEST_AUTO_APPROVED:"
+            f"{request_id}:"
+            f"{route}"
+        )
+
+    else:
+
+        send_status(
+            f"REQUEST_ACTIVATION_FAILED:"
+            f"{request_id}:"
+            f"{route}"
+        )
+
+    # --------------------------------------------------------
+    # KEEP RESULT FOR ADMIN FOR 3 SEC
+    # --------------------------------------------------------
+
+    time.sleep(3)
+
+    clear_request_later(request_id)
+
+
+# ============================================================
+# CLEAR REQUEST
+# ============================================================
+
+def clear_request_later(request_id):
+
+    global pending_request
+
+    with request_lock:
+
+        if (
+            pending_request is not None
+            and
+            pending_request["id"] == request_id
+        ):
+
+            print(
+                f"🧹 Clearing request {request_id}",
+                flush=True
+            )
+
             pending_request = None
 
 
 # ============================================================
-# HOME / HEALTH CHECK
+# HOME / HEALTH
 # ============================================================
 
 @app.route("/", methods=["GET"])
@@ -625,10 +702,6 @@ def route_request():
 
         }), 400
 
-    route = str(route).upper()
-
-    source = str(source)
-
     new_request, error = create_request(
         route,
         source
@@ -649,9 +722,11 @@ def route_request():
         "success": True,
 
         "message":
-            "Emergency request sent to traffic control",
+            "Emergency request sent "
+            "to traffic control",
 
-        "request": new_request,
+        "request":
+            new_request,
 
         "timeout":
             REQUEST_TIMEOUT
@@ -681,7 +756,13 @@ def get_requests():
 
             })
 
-        request_copy = pending_request.copy()
+        request_copy = (
+            pending_request.copy()
+        )
+
+    # --------------------------------------------------------
+    # Calculate remaining time
+    # --------------------------------------------------------
 
     elapsed = (
         time.time()
@@ -694,7 +775,9 @@ def get_requests():
         REQUEST_TIMEOUT - elapsed
     )
 
-    request_copy["remaining_seconds"] = round(
+    request_copy[
+        "remaining_seconds"
+    ] = round(
         remaining,
         1
     )
@@ -703,7 +786,8 @@ def get_requests():
 
         "success": True,
 
-        "request": request_copy
+        "request":
+            request_copy
 
     })
 
@@ -720,6 +804,10 @@ def accept_request(request_id):
 
     global pending_request
 
+    # --------------------------------------------------------
+    # GET REQUEST
+    # --------------------------------------------------------
+
     with request_lock:
 
         if pending_request is None:
@@ -733,7 +821,10 @@ def accept_request(request_id):
 
             }), 404
 
-        if pending_request["id"] != request_id:
+        if (
+            pending_request["id"]
+            != request_id
+        ):
 
             return jsonify({
 
@@ -744,7 +835,10 @@ def accept_request(request_id):
 
             }), 404
 
-        if pending_request["status"] != "PENDING":
+        if (
+            pending_request["status"]
+            != "PENDING"
+        ):
 
             return jsonify({
 
@@ -759,11 +853,13 @@ def accept_request(request_id):
 
         source = pending_request["source"]
 
-        # Don't clear the request yet
-        pending_request["status"] = "APPROVING"
+        # Reserve request
+        pending_request["status"] = (
+            "APPROVING"
+        )
 
     # --------------------------------------------------------
-    # Activate route
+    # ACTIVATE ROUTE
     # --------------------------------------------------------
 
     success = activate_route(
@@ -771,13 +867,24 @@ def accept_request(request_id):
         "ADMIN_APPROVED"
     )
 
+    # --------------------------------------------------------
+    # MQTT FAILED
+    # --------------------------------------------------------
+
     if not success:
 
         with request_lock:
 
-            if pending_request is not None:
+            if (
+                pending_request is not None
+                and
+                pending_request["id"]
+                == request_id
+            ):
 
-                pending_request["status"] = "ACTIVATION_FAILED"
+                pending_request["status"] = (
+                    "PENDING"
+                )
 
         return jsonify({
 
@@ -789,37 +896,60 @@ def accept_request(request_id):
         }), 503
 
     # --------------------------------------------------------
-    # Mark approved
+    # MARK APPROVED
     # --------------------------------------------------------
 
     with request_lock:
 
-        if pending_request is not None:
+        if (
+            pending_request is not None
+            and
+            pending_request["id"]
+            == request_id
+        ):
 
-            pending_request["status"] = "APPROVED"
+            pending_request["status"] = (
+                "APPROVED"
+            )
 
-            pending_request["decision"] = "ACCEPTED"
+            pending_request["decision"] = (
+                "ACCEPTED"
+            )
 
-            pending_request["decision_at"] = time.time()
+            pending_request["decision_at"] = (
+                time.time()
+            )
+
+    # --------------------------------------------------------
+    # STATUS
+    # --------------------------------------------------------
 
     send_status(
-        f"REQUEST_APPROVED:{request_id}:{route}"
+        f"REQUEST_APPROVED:"
+        f"{request_id}:"
+        f"{route}"
     )
 
+    # --------------------------------------------------------
+    # LOG
+    # --------------------------------------------------------
+
     print()
-    print("===================================")
+    print("==========================================")
     print("👮 ADMIN APPROVED REQUEST")
-    print(f"Route: {route}")
-    print(f"Original source: {source}")
-    print("===================================")
+    print("==========================================")
+    print(f"ID:     {request_id}")
+    print(f"Route:  {route}")
+    print(f"Source: {source}")
+    print("==========================================")
     print()
 
     # --------------------------------------------------------
-    # Clear later
+    # CLEAR AFTER 3 SEC
     # --------------------------------------------------------
 
     threading.Thread(
-        target=clear_request_later,
+        target=clear_request_later_delayed,
         args=(request_id,),
         daemon=True
     ).start()
@@ -831,9 +961,23 @@ def accept_request(request_id):
         "message":
             "Request approved",
 
-        "route": route
+        "route":
+            route
 
     })
+
+
+# ============================================================
+# DELAYED CLEAR
+# ============================================================
+
+def clear_request_later_delayed(request_id):
+
+    time.sleep(3)
+
+    clear_request_later(
+        request_id
+    )
 
 
 # ============================================================
@@ -848,6 +992,10 @@ def deny_request(request_id):
 
     global pending_request
 
+    # --------------------------------------------------------
+    # CHECK REQUEST
+    # --------------------------------------------------------
+
     with request_lock:
 
         if pending_request is None:
@@ -861,7 +1009,10 @@ def deny_request(request_id):
 
             }), 404
 
-        if pending_request["id"] != request_id:
+        if (
+            pending_request["id"]
+            != request_id
+        ):
 
             return jsonify({
 
@@ -872,7 +1023,10 @@ def deny_request(request_id):
 
             }), 404
 
-        if pending_request["status"] != "PENDING":
+        if (
+            pending_request["status"]
+            != "PENDING"
+        ):
 
             return jsonify({
 
@@ -887,26 +1041,48 @@ def deny_request(request_id):
 
         source = pending_request["source"]
 
-        pending_request["status"] = "DENIED"
+        pending_request["status"] = (
+            "DENIED"
+        )
 
-        pending_request["decision"] = "DENIED"
+        pending_request["decision"] = (
+            "DENIED"
+        )
 
-        pending_request["decision_at"] = time.time()
+        pending_request["decision_at"] = (
+            time.time()
+        )
+
+    # --------------------------------------------------------
+    # LOG
+    # --------------------------------------------------------
 
     print()
-    print("===================================")
+    print("==========================================")
     print("❌ ADMIN DENIED REQUEST")
-    print(f"Route: {route}")
-    print(f"Original source: {source}")
-    print("===================================")
+    print("==========================================")
+    print(f"ID:     {request_id}")
+    print(f"Route:  {route}")
+    print(f"Source: {source}")
+    print("==========================================")
     print()
+
+    # --------------------------------------------------------
+    # STATUS
+    # --------------------------------------------------------
 
     send_status(
-        f"REQUEST_DENIED:{request_id}:{route}"
+        f"REQUEST_DENIED:"
+        f"{request_id}:"
+        f"{route}"
     )
 
+    # --------------------------------------------------------
+    # CLEAR AFTER 3 SEC
+    # --------------------------------------------------------
+
     threading.Thread(
-        target=clear_request_later,
+        target=clear_request_later_delayed,
         args=(request_id,),
         daemon=True
     ).start()
@@ -918,34 +1094,14 @@ def deny_request(request_id):
         "message":
             "Request denied",
 
-        "route": route
+        "route":
+            route
 
     })
 
 
 # ============================================================
-# CLEAR COMPLETED REQUEST
-# ============================================================
-
-def clear_request_later(request_id):
-
-    global pending_request
-
-    time.sleep(3)
-
-    with request_lock:
-
-        if (
-            pending_request is not None
-            and
-            pending_request["id"] == request_id
-        ):
-
-            pending_request = None
-
-
-# ============================================================
-# EXISTING TRAFFIC API
+# MANUAL TRAFFIC API
 # ============================================================
 
 @app.route(
@@ -984,7 +1140,10 @@ def traffic_control():
 
     signal = str(signal).upper()
 
-    if signal not in ["ON", "OFF"]:
+    if signal not in [
+        "ON",
+        "OFF"
+    ]:
 
         return jsonify({
 
@@ -1014,7 +1173,10 @@ def traffic_control():
             qos=1
         )
 
-        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+        if (
+            result.rc
+            != mqtt.MQTT_ERR_SUCCESS
+        ):
 
             return jsonify({
 
@@ -1046,18 +1208,18 @@ def traffic_control():
         }), 500
 
     print()
-    print("===================================")
-    print(f"Traffic signal sent: {signal}")
-    print(f"MQTT topic: {SIGNAL_TOPIC}")
-    print("Source: Manual API")
-    print("===================================")
+    print("==========================================")
+    print(f"🚦 Traffic signal sent: {signal}")
+    print(f"Topic: {SIGNAL_TOPIC}")
+    print("==========================================")
     print()
 
     return jsonify({
 
         "success": True,
 
-        "signal": signal,
+        "signal":
+            signal,
 
         "message":
             f"Traffic light command "
@@ -1067,7 +1229,7 @@ def traffic_control():
 
 
 # ============================================================
-# AI CAMERA DETECTION
+# CAMERA DETECTION
 # ============================================================
 
 @app.route(
@@ -1091,12 +1253,12 @@ def camera_detection():
 
         }), 400
 
-    detected = data.get(
-        "detected",
-        False
+    detected = bool(
+        data.get(
+            "detected",
+            False
+        )
     )
-
-    detected = bool(detected)
 
     # --------------------------------------------------------
     # AMBULANCE DETECTED
@@ -1105,9 +1267,9 @@ def camera_detection():
     if detected:
 
         print()
-        print("===================================")
-        print("🚑 AMBULANCE DETECTED BY AI")
-        print("===================================")
+        print("==========================================")
+        print("🚑 AMBULANCE DETECTED BY CAMERA")
+        print("==========================================")
         print()
 
         new_request, error = create_request(
@@ -1121,7 +1283,8 @@ def camera_detection():
 
                 "success": False,
 
-                "error": error
+                "error":
+                    error
 
             }), 409
 
@@ -1135,7 +1298,8 @@ def camera_detection():
 
             "source": "AI Camera",
 
-            "request": new_request,
+            "request":
+                new_request,
 
             "message":
                 "Ambulance detected. "
@@ -1148,7 +1312,8 @@ def camera_detection():
     # --------------------------------------------------------
 
     print(
-        "ℹ️ Camera detection cleared"
+        "ℹ️ Camera detection cleared",
+        flush=True
     )
 
     return jsonify({
@@ -1164,7 +1329,7 @@ def camera_detection():
 
 
 # ============================================================
-# START FLASK SERVER
+# START SERVER
 # ============================================================
 
 if __name__ == "__main__":
@@ -1181,10 +1346,22 @@ if __name__ == "__main__":
     print("🚑 RESQROUTE BACKEND")
     print("==========================================")
     print(f"Flask port:    {port}")
-    print(f"MQTT broker:   {MQTT_BROKER}:{MQTT_PORT}")
-    print(f"Signal topic:  {SIGNAL_TOPIC}")
-    print(f"Status topic:  {STATUS_TOPIC}")
-    print(f"Admin timeout: {REQUEST_TIMEOUT} seconds")
+    print(
+        f"MQTT broker:   "
+        f"{MQTT_BROKER}:{MQTT_PORT}"
+    )
+    print(
+        f"Signal topic:  "
+        f"{SIGNAL_TOPIC}"
+    )
+    print(
+        f"Status topic:  "
+        f"{STATUS_TOPIC}"
+    )
+    print(
+        f"Admin timeout: "
+        f"{REQUEST_TIMEOUT} seconds"
+    )
     print("==========================================")
     print()
 
