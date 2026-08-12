@@ -83,26 +83,37 @@ mqtt_client.on_message = on_message
 # MQTT BACKGROUND THREAD
 # ============================================================
 
+# ============================================================
+# MQTT BACKGROUND THREAD
+# ============================================================
+
 def mqtt_loop():
 
-    try:
+    while True:
 
-        print("Connecting to MQTT broker...")
+        try:
 
-        mqtt_client.connect(
-            MQTT_BROKER,
-            MQTT_PORT,
-            60
-        )
+            print("Connecting to MQTT broker...")
 
-        mqtt_client.loop_forever()
+            mqtt_client.connect(
+                MQTT_BROKER,
+                MQTT_PORT,
+                60
+            )
 
-    except Exception as error:
+            print("MQTT connection established!")
 
-        print()
-        print("MQTT ERROR:")
-        print(error)
-        print()
+            mqtt_client.loop_forever()
+
+        except Exception as error:
+
+            print()
+            print("MQTT ERROR:")
+            print(error)
+            print("Retrying in 5 seconds...")
+            print()
+
+            time.sleep(5)
 
 
 mqtt_thread = threading.Thread(
@@ -111,7 +122,6 @@ mqtt_thread = threading.Thread(
 )
 
 mqtt_thread.start()
-
 
 # ============================================================
 # SEND MQTT STATUS TO WEBSITE
