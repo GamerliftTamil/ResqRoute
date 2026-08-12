@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +14,10 @@
 
 <div class="page">
 
-    <!-- HEADER -->
+    <!-- =====================================================
+         HEADER
+    ====================================================== -->
+
     <header class="header">
 
         <div class="badge">
@@ -33,86 +37,139 @@
     </header>
 
 
-    <!-- MAIN REQUEST CARD -->
+    <!-- =====================================================
+         MAIN
+    ====================================================== -->
+
     <main>
 
-        <section id="requestCard" class="request-card hidden">
+        <!-- =================================================
+             REQUEST CARD
+        ================================================== -->
+
+        <section
+            id="requestCard"
+            class="request-card hidden"
+        >
 
             <div class="alert-header">
+
                 <div class="alert-icon">
                     🚨
                 </div>
 
                 <div>
-                    <h2>Emergency Request</h2>
+
+                    <h2>
+                        Emergency Request
+                    </h2>
+
                     <p id="requestSource">
                         Waiting for information...
                     </p>
+
                 </div>
+
             </div>
 
 
             <!-- REQUEST INFORMATION -->
+
             <div class="info-grid">
 
                 <div class="info-box">
-                    <span>ROUTE</span>
+
+                    <span>
+                        ROUTE
+                    </span>
+
                     <strong id="routeValue">
                         —
                     </strong>
+
                 </div>
 
+
                 <div class="info-box">
-                    <span>SOURCE</span>
+
+                    <span>
+                        SOURCE
+                    </span>
+
                     <strong id="sourceValue">
                         —
                     </strong>
+
                 </div>
 
+
                 <div class="info-box">
-                    <span>REQUEST ID</span>
+
+                    <span>
+                        REQUEST ID
+                    </span>
+
                     <strong id="requestId">
                         —
                     </strong>
+
                 </div>
 
+
                 <div class="info-box">
-                    <span>STATUS</span>
-                    <strong id="requestStatus">
+
+                    <span>
+                        STATUS
+                    </span>
+
+                    <strong
+                        id="requestStatus"
+                        class="pending"
+                    >
                         PENDING
                     </strong>
+
                 </div>
 
             </div>
 
 
             <!-- COUNTDOWN -->
+
             <div class="countdown-area">
 
-                <p>Automatic activation in</p>
+                <p>
+                    Automatic activation in
+                </p>
 
                 <div id="countdown">
                     10
                 </div>
 
-                <span>SECONDS</span>
+                <span>
+                    SECONDS
+                </span>
 
             </div>
 
 
             <!-- ACTION BUTTONS -->
+
             <div class="actions">
 
                 <button
                     id="acceptBtn"
                     class="accept-btn"
+                    type="button"
                 >
                     ✅ ACCEPT
                 </button>
 
+
                 <button
                     id="denyBtn"
                     class="deny-btn"
+                    type="button"
                 >
                     ❌ DENY
                 </button>
@@ -122,7 +179,10 @@
         </section>
 
 
-        <!-- NO REQUEST -->
+        <!-- =================================================
+             WAITING CARD
+        ================================================== -->
+
         <section
             id="waitingCard"
             class="waiting-card"
@@ -132,21 +192,30 @@
                 🚦
             </div>
 
-            <h2>No Pending Emergency</h2>
+            <h2>
+                No Pending Emergency
+            </h2>
 
             <p>
-                Traffic control center is monitoring for emergency requests.
+                Traffic control center is monitoring
+                for emergency requests.
             </p>
 
             <div class="monitoring">
+
                 <span></span>
+
                 SYSTEM MONITORING
+
             </div>
 
         </section>
 
 
-        <!-- RESULT MESSAGE -->
+        <!-- =================================================
+             RESULT CARD
+        ================================================== -->
+
         <section
             id="resultCard"
             class="result-card hidden"
@@ -169,24 +238,35 @@
     </main>
 
 
+    <!-- =====================================================
+         FOOTER
+    ====================================================== -->
+
     <footer>
+
         ResQRoute • Emergency Traffic Management Demonstration
+
     </footer>
 
 </div>
 
 
+<!-- =========================================================
+     JAVASCRIPT
+========================================================== -->
+
 <script>
 
     // =========================================================
-    // BACKEND CONFIGURATION
+    // BACKEND
     // =========================================================
 
-    const BACKEND_URL = "https://resqroute-wdnu.onrender.com/";
+    const BACKEND_URL =
+        "https://resqroute-wdnu.onrender.com";
 
 
     // =========================================================
-    // ELEMENTS
+    // DOM ELEMENTS
     // =========================================================
 
     const requestCard =
@@ -207,7 +287,7 @@
     const sourceValue =
         document.getElementById("sourceValue");
 
-    const requestId =
+    const requestIdElement =
         document.getElementById("requestId");
 
     const requestStatus =
@@ -227,184 +307,343 @@
 
 
     // =========================================================
-    // CURRENT REQUEST
+    // DASHBOARD STATE
     // =========================================================
 
     let currentRequestId = null;
 
-    let lastStatus = null;
+    let lastRequestStatus = null;
+
+    let polling = false;
+
+    let resultTimeout = null;
 
 
     // =========================================================
-    // CHECK BACKEND
+    // BACKEND STATUS
     // =========================================================
 
     async function checkBackend() {
 
         try {
 
-            const response =
-                await fetch(
-                    `${BACKEND_URL}/`,
-                    {
-                        cache: "no-store"
-                    }
-                );
+            const response = await fetch(
+                `${BACKEND_URL}/?t=${Date.now()}`,
+                {
+                    method: "GET",
+                    cache: "no-store"
+                }
+            );
+
 
             if (!response.ok) {
-                throw new Error("Backend error");
-            }
 
-            connectionStatus.textContent =
-                "🟢 Backend Online";
-
-            connectionStatus.className =
-                "connection online";
-
-            return true;
-
-        } catch (error) {
-
-            connectionStatus.textContent =
-                "🔴 Backend Offline";
-
-            connectionStatus.className =
-                "connection offline";
-
-            return false;
-        }
-    }
-
-
-    // =========================================================
-    // GET CURRENT REQUEST
-    // =========================================================
-
-    async function checkRequest() {
-
-        try {
-
-            const response =
-                await fetch(
-                    `${BACKEND_URL}/api/requests`,
-                    {
-                        cache: "no-store"
-                    }
+                throw new Error(
+                    `Backend returned ${response.status}`
                 );
 
-            if (!response.ok) {
-                throw new Error("Request error");
             }
+
 
             const data =
                 await response.json();
 
-            if (!data.success) {
-                return;
+
+            if (
+                data.success !== true
+            ) {
+
+                throw new Error(
+                    "Backend health check failed"
+                );
+
             }
 
 
-            // -------------------------------------------------
-            // NO REQUEST
-            // -------------------------------------------------
+            connectionStatus.textContent =
+                "🟢 Backend Online";
+
+
+            connectionStatus.className =
+                "connection online";
+
+
+            return true;
+
+
+        } catch (error) {
+
+            console.error(
+                "Backend connection error:",
+                error
+            );
+
+
+            connectionStatus.textContent =
+                "🔴 Backend Offline";
+
+
+            connectionStatus.className =
+                "connection offline";
+
+
+            return false;
+
+        }
+
+    }
+
+
+    // =========================================================
+    // CHECK REQUESTS
+    //
+    // This runs every second.
+    //
+    // The cache-busting timestamp prevents browser/CDN caching.
+    // =========================================================
+
+    async function updateDashboard() {
+
+        if (polling) {
+            return;
+        }
+
+
+        polling = true;
+
+
+        try {
+
+            const response = await fetch(
+                `${BACKEND_URL}/api/requests?t=${Date.now()}`,
+                {
+                    method: "GET",
+
+                    cache: "no-store",
+
+                    headers: {
+                        "Cache-Control": "no-cache",
+                        "Pragma": "no-cache"
+                    }
+                }
+            );
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    `Request endpoint returned ${response.status}`
+                );
+
+            }
+
+
+            const data =
+                await response.json();
+
+
+            if (
+                data.success !== true
+            ) {
+
+                throw new Error(
+                    data.error ||
+                    "Request API failed"
+                );
+
+            }
+
+
+            // =================================================
+            // NO CURRENT REQUEST
+            // =================================================
 
             if (!data.request) {
 
-                showWaiting();
-
-                return;
-            }
-
-
-            const req = data.request;
-
-
-            // -------------------------------------------------
-            // COMPLETED REQUEST
-            // -------------------------------------------------
-
-            if (
-                req.status !== "PENDING"
-            ) {
+                /*
+                 * Don't destroy a result message that is
+                 * currently being displayed.
+                 */
 
                 if (
-                    req.id !== currentRequestId
-                    ||
-                    lastStatus !== req.status
+                    resultCard.classList.contains("hidden")
                 ) {
 
-                    showResult(req);
+                    requestCard.classList.add(
+                        "hidden"
+                    );
 
-                    lastStatus =
-                        req.status;
+                    waitingCard.classList.remove(
+                        "hidden"
+                    );
+
                 }
 
                 return;
             }
 
 
-            // -------------------------------------------------
-            // NEW REQUEST
-            // -------------------------------------------------
+            // =================================================
+            // REQUEST EXISTS
+            // =================================================
+
+            const req =
+                data.request;
+
+
+            console.log(
+                "📡 ResQRoute request:",
+                req
+            );
+
+
+            // =================================================
+            // NEW PENDING REQUEST
+            // =================================================
 
             if (
+                req.status === "PENDING" &&
                 currentRequestId !== req.id
             ) {
 
                 currentRequestId =
                     req.id;
 
-                lastStatus =
+
+                lastRequestStatus =
                     "PENDING";
 
-                showRequest(req);
+
+                showRequest(
+                    req
+                );
+
+
+                console.log(
+                    "🚨 NEW EMERGENCY REQUEST:",
+                    req.id,
+                    req.route,
+                    req.source
+                );
+
+
+                return;
             }
 
 
-            // -------------------------------------------------
-            // UPDATE COUNTDOWN
-            // -------------------------------------------------
+            // =================================================
+            // EXISTING PENDING REQUEST
+            //
+            // Update countdown every second.
+            // =================================================
 
             if (
-                typeof req.remaining_seconds
-                === "number"
+                req.status === "PENDING" &&
+                currentRequestId === req.id
             ) {
 
-                const seconds =
-                    Math.ceil(
-                        req.remaining_seconds
-                    );
+                updateCountdown(
+                    req
+                );
 
-                countdown.textContent =
-                    seconds;
 
-                if (seconds <= 3) {
+                /*
+                 * Keep the request card visible even if
+                 * another function temporarily changed it.
+                 */
 
-                    countdown.classList.add(
-                        "urgent"
-                    );
+                requestCard.classList.remove(
+                    "hidden"
+                );
 
-                } else {
+                waitingCard.classList.add(
+                    "hidden"
+                );
 
-                    countdown.classList.remove(
-                        "urgent"
-                    );
+
+                return;
+            }
+
+
+            // =================================================
+            // REQUEST IS BEING APPROVED
+            // =================================================
+
+            if (
+                req.status === "APPROVING"
+            ) {
+
+                if (
+                    currentRequestId === req.id
+                ) {
+
+                    requestStatus.textContent =
+                        "APPROVING...";
+
+                    requestStatus.className =
+                        "pending";
+
+                    acceptBtn.disabled = true;
+                    denyBtn.disabled = true;
+
                 }
+
+
+                return;
+            }
+
+
+            // =================================================
+            // REQUEST PROCESSED
+            // =================================================
+
+            if (
+                req.id === currentRequestId &&
+                req.status !== "PENDING"
+            ) {
+
+                if (
+                    lastRequestStatus !==
+                    req.status
+                ) {
+
+                    lastRequestStatus =
+                        req.status;
+
+
+                    console.log(
+                        "📋 Request status changed:",
+                        req.status
+                    );
+
+
+                    showResult(
+                        req
+                    );
+
+                }
+
             }
 
 
         } catch (error) {
 
-            console.log(
-                "Request check error:",
+            console.error(
+                "❌ Dashboard update failed:",
                 error
             );
+
+        } finally {
+
+            polling = false;
+
         }
+
     }
 
 
     // =========================================================
-    // SHOW REQUEST
+    // SHOW NEW REQUEST
     // =========================================================
 
     function showRequest(req) {
@@ -423,81 +662,167 @@
 
 
         routeValue.textContent =
-            req.route;
+            req.route || "—";
+
 
         sourceValue.textContent =
-            formatSource(req.source);
+            formatSource(
+                req.source
+            );
 
-        requestId.textContent =
-            req.id;
+
+        requestIdElement.textContent =
+            req.id || "—";
+
 
         requestStatus.textContent =
             "PENDING";
 
+
         requestStatus.className =
             "pending";
+
 
         requestSource.textContent =
             "🚨 Emergency request received";
 
 
-        acceptBtn.disabled = false;
-        denyBtn.disabled = false;
+        acceptBtn.disabled =
+            false;
 
 
-        if (
-            typeof req.remaining_seconds
-            === "number"
-        ) {
+        denyBtn.disabled =
+            false;
 
-            countdown.textContent =
-                Math.ceil(
-                    req.remaining_seconds
-                );
-        }
+
+        updateCountdown(
+            req
+        );
+
     }
 
 
     // =========================================================
-    // SOURCE FORMATTER
+    // UPDATE COUNTDOWN
+    // =========================================================
+
+    function updateCountdown(req) {
+
+        if (
+            typeof req.remaining_seconds !==
+            "number"
+        ) {
+
+            return;
+
+        }
+
+
+        const seconds =
+            Math.max(
+                0,
+                Math.ceil(
+                    req.remaining_seconds
+                )
+            );
+
+
+        countdown.textContent =
+            seconds;
+
+
+        if (
+            seconds <= 3
+        ) {
+
+            countdown.classList.add(
+                "urgent"
+            );
+
+        } else {
+
+            countdown.classList.remove(
+                "urgent"
+            );
+
+        }
+
+    }
+
+
+    // =========================================================
+    // FORMAT SOURCE
     // =========================================================
 
     function formatSource(source) {
 
         if (!source) {
+
             return "Unknown";
+
         }
+
 
         if (
             source === "AI_CAMERA"
         ) {
 
             return "📹 AI Camera";
+
         }
+
 
         if (
             source === "MANUAL"
         ) {
 
             return "👤 Manual Request";
+
         }
 
+
+        if (
+            source === "TEST"
+        ) {
+
+            return "🧪 Test Request";
+
+        }
+
+
         return source;
+
     }
 
 
     // =========================================================
-    // ACCEPT REQUEST
+    // ACCEPT
     // =========================================================
 
     async function acceptRequest() {
 
         if (!currentRequestId) {
+
+            console.log(
+                "⚠️ No request selected"
+            );
+
             return;
+
         }
 
-        acceptBtn.disabled = true;
-        denyBtn.disabled = true;
+
+        const id =
+            currentRequestId;
+
+
+        acceptBtn.disabled =
+            true;
+
+
+        denyBtn.disabled =
+            true;
+
 
         requestStatus.textContent =
             "APPROVING...";
@@ -505,22 +830,36 @@
 
         try {
 
+            console.log(
+                "🚦 Approving request:",
+                id
+            );
+
+
             const response =
                 await fetch(
-                    `${BACKEND_URL}/api/requests/${currentRequestId}/accept`,
+                    `${BACKEND_URL}/api/requests/${encodeURIComponent(id)}/accept`,
                     {
                         method: "POST",
 
                         headers: {
                             "Content-Type":
                                 "application/json"
-                        }
+                        },
+
+                        cache: "no-store"
                     }
                 );
 
 
             const data =
                 await response.json();
+
+
+            console.log(
+                "✅ Accept response:",
+                data
+            );
 
 
             if (!response.ok) {
@@ -529,8 +868,27 @@
                     data.error ||
                     "Approval failed"
                 );
+
             }
 
+
+            if (
+                data.success !== true
+            ) {
+
+                throw new Error(
+                    data.error ||
+                    "Approval failed"
+                );
+
+            }
+
+
+            /*
+             * Show result immediately.
+             * The backend will also mark the request
+             * APPROVED and activate MQTT.
+             */
 
             showApprovalResult(
                 data.route
@@ -539,34 +897,62 @@
 
         } catch (error) {
 
-            console.error(error);
+            console.error(
+                "❌ Approval failed:",
+                error
+            );
+
 
             requestStatus.textContent =
                 "ERROR";
 
-            acceptBtn.disabled = false;
-            denyBtn.disabled = false;
+
+            acceptBtn.disabled =
+                false;
+
+
+            denyBtn.disabled =
+                false;
+
 
             alert(
-                "Could not approve request: "
-                + error.message
+                "Could not approve request:\n\n" +
+                error.message
             );
+
         }
+
     }
 
 
     // =========================================================
-    // DENY REQUEST
+    // DENY
     // =========================================================
 
     async function denyRequest() {
 
         if (!currentRequestId) {
+
+            console.log(
+                "⚠️ No request selected"
+            );
+
             return;
+
         }
 
-        acceptBtn.disabled = true;
-        denyBtn.disabled = true;
+
+        const id =
+            currentRequestId;
+
+
+        acceptBtn.disabled =
+            true;
+
+
+        denyBtn.disabled =
+            true;
+
 
         requestStatus.textContent =
             "DENYING...";
@@ -574,16 +960,24 @@
 
         try {
 
+            console.log(
+                "❌ Denying request:",
+                id
+            );
+
+
             const response =
                 await fetch(
-                    `${BACKEND_URL}/api/requests/${currentRequestId}/deny`,
+                    `${BACKEND_URL}/api/requests/${encodeURIComponent(id)}/deny`,
                     {
                         method: "POST",
 
                         headers: {
                             "Content-Type":
                                 "application/json"
-                        }
+                        },
+
+                        cache: "no-store"
                     }
                 );
 
@@ -592,12 +986,31 @@
                 await response.json();
 
 
+            console.log(
+                "❌ Deny response:",
+                data
+            );
+
+
             if (!response.ok) {
 
                 throw new Error(
                     data.error ||
                     "Denial failed"
                 );
+
+            }
+
+
+            if (
+                data.success !== true
+            ) {
+
+                throw new Error(
+                    data.error ||
+                    "Denial failed"
+                );
+
             }
 
 
@@ -608,70 +1021,100 @@
 
         } catch (error) {
 
-            console.error(error);
+            console.error(
+                "❌ Denial failed:",
+                error
+            );
+
 
             requestStatus.textContent =
                 "ERROR";
 
-            acceptBtn.disabled = false;
-            denyBtn.disabled = false;
+
+            acceptBtn.disabled =
+                false;
+
+
+            denyBtn.disabled =
+                false;
+
 
             alert(
-                "Could not deny request: "
-                + error.message
+                "Could not deny request:\n\n" +
+                error.message
             );
+
         }
+
     }
 
 
     // =========================================================
-    // APPROVAL RESULT
+    // APPROVED RESULT
     // =========================================================
 
     function showApprovalResult(route) {
+
+        clearResultTimeout();
+
 
         requestCard.classList.add(
             "hidden"
         );
 
+
         waitingCard.classList.add(
             "hidden"
         );
+
 
         resultCard.classList.remove(
             "hidden"
         );
 
+
         document.getElementById(
             "resultIcon"
-        ).textContent = "🚦";
+        ).textContent =
+            "🚦";
+
 
         document.getElementById(
             "resultTitle"
         ).textContent =
             "Route Approved";
 
+
         document.getElementById(
             "resultMessage"
         ).textContent =
             `${route} has been activated. Traffic sequence is now running.`;
 
-        currentRequestId = null;
 
-        setTimeout(
-            () => {
+        currentRequestId =
+            null;
 
-                resultCard.classList.add(
-                    "hidden"
-                );
 
-                waitingCard.classList.remove(
-                    "hidden"
-                );
+        lastRequestStatus =
+            null;
 
-            },
-            5000
-        );
+
+        resultTimeout =
+            setTimeout(
+                () => {
+
+                    resultCard.classList.add(
+                        "hidden"
+                    );
+
+                    waitingCard.classList.remove(
+                        "hidden"
+                    );
+
+                },
+                5000
+            );
+
     }
 
 
@@ -681,311 +1124,273 @@
 
     function showDeniedResult(route) {
 
+        clearResultTimeout();
+
+
         requestCard.classList.add(
             "hidden"
         );
+
 
         waitingCard.classList.add(
             "hidden"
         );
 
+
         resultCard.classList.remove(
             "hidden"
         );
 
+
         document.getElementById(
             "resultIcon"
-        ).textContent = "❌";
+        ).textContent =
+            "❌";
+
 
         document.getElementById(
             "resultTitle"
         ).textContent =
             "Request Denied";
 
+
         document.getElementById(
             "resultMessage"
         ).textContent =
             `${route} was denied. No traffic signal was activated.`;
 
-        currentRequestId = null;
 
-        setTimeout(
-            () => {
+        currentRequestId =
+            null;
 
-                resultCard.classList.add(
-                    "hidden"
-                );
 
-                waitingCard.classList.remove(
-                    "hidden"
-                );
+        lastRequestStatus =
+            null;
 
-            },
-            5000
-        );
+
+        resultTimeout =
+            setTimeout(
+                () => {
+
+                    resultCard.classList.add(
+                        "hidden"
+                    );
+
+                    waitingCard.classList.remove(
+                        "hidden"
+                    );
+
+                },
+                5000
+            );
+
     }
 
 
     // =========================================================
-    // SHOW COMPLETED REQUEST
+    // SERVER-SIDE RESULT
     // =========================================================
 
     function showResult(req) {
 
-        if (
-            req.status === "AUTO_APPROVED"
-        ) {
-
-            requestCard.classList.add(
-                "hidden"
-            );
-
-            waitingCard.classList.add(
-                "hidden"
-            );
-
-            resultCard.classList.remove(
-                "hidden"
-            );
-
-            document.getElementById(
-                "resultIcon"
-            ).textContent = "⏱️";
-
-            document.getElementById(
-                "resultTitle"
-            ).textContent =
-                "Automatic Activation";
-
-            document.getElementById(
-                "resultMessage"
-            ).textContent =
-                `${req.route} was automatically activated because no admin response was received.`;
-
-            currentRequestId = null;
-        }
-    }
+        clearResultTimeout();
 
 
-    // =========================================================
-    // SHOW WAITING
-    // =========================================================
-
-    function showWaiting() {
-
-        if (
-            !requestCard.classList.contains(
-                "hidden"
-            )
-        ) {
-            return;
-        }
-
-        if (
-            !resultCard.classList.contains(
-                "hidden"
-            )
-        ) {
-            return;
-        }
-
-        waitingCard.classList.remove(
+        requestCard.classList.add(
             "hidden"
         );
-    }
 
 
-    // =========================================================
-    // BUTTONS
-    // =========================================================
-
-    acceptBtn.addEventListener(
-        "click",
-        acceptRequest
-    );
-
-    denyBtn.addEventListener(
-        "click",
-        denyRequest
-    );
+        waitingCard.classList.add(
+            "hidden"
+        );
 
 
-    <script>
-    // =========================================================
-    // AUTO-UPDATE DASHBOARD
-    // =========================================================
+        resultCard.classList.remove(
+            "hidden"
+        );
 
-    let polling = false;
 
-    async function updateDashboard() {
-
-        // Prevent overlapping requests
-        if (polling) return;
-
-        polling = true;
-
-        try {
-
-            const response = await fetch(
-                `${BACKEND_URL}/api/requests?t=${Date.now()}`,
-                {
-                    method: "GET",
-                    cache: "no-store",
-                    headers: {
-                        "Cache-Control": "no-cache",
-                        "Pragma": "no-cache"
-                    }
-                }
+        const icon =
+            document.getElementById(
+                "resultIcon"
             );
 
-            if (!response.ok) {
-                throw new Error(
-                    `Backend returned ${response.status}`
-                );
-            }
 
-            const data = await response.json();
-
-            if (!data.success) {
-                throw new Error(
-                    data.error || "Backend request failed"
-                );
-            }
-
-            // =================================================
-            // NO REQUEST
-            // =================================================
-
-            if (!data.request) {
-
-                if (
-                    requestCard.classList.contains("hidden") &&
-                    resultCard.classList.contains("hidden")
-                ) {
-                    waitingCard.classList.remove("hidden");
-                }
-
-                currentRequestId = null;
-
-                return;
-            }
-
-            // =================================================
-            // REQUEST EXISTS
-            // =================================================
-
-            const req = data.request;
-
-            console.log(
-                "📡 Dashboard update:",
-                req
+        const title =
+            document.getElementById(
+                "resultTitle"
             );
 
-            // =================================================
-            // NEW PENDING REQUEST
-            // =================================================
 
-            if (
-                req.status === "PENDING" &&
-                currentRequestId !== req.id
-            ) {
+        const message =
+            document.getElementById(
+                "resultMessage"
+            );
 
-                currentRequestId = req.id;
 
-                showRequest(req);
+        // -----------------------------------------------------
+        // AUTO APPROVED
+        // -----------------------------------------------------
 
-                console.log(
-                    "🚨 NEW REQUEST:",
-                    req.id,
-                    req.route
-                );
+        if (
+            req.status ===
+            "AUTO_APPROVED"
+        ) {
 
-                return;
-            }
+            icon.textContent =
+                "⏱️";
 
-            // =================================================
-            // EXISTING PENDING REQUEST
-            // Update countdown continuously
-            // =================================================
 
-            if (
-                req.status === "PENDING" &&
-                currentRequestId === req.id
-            ) {
+            title.textContent =
+                "Automatic Activation";
 
-                if (
-                    typeof req.remaining_seconds === "number"
-                ) {
 
-                    const seconds = Math.ceil(
-                        req.remaining_seconds
+            message.textContent =
+                `${req.route} was automatically activated because no admin response was received.`;
+
+        }
+
+
+        // -----------------------------------------------------
+        // APPROVED
+        // -----------------------------------------------------
+
+        else if (
+            req.status ===
+            "APPROVED"
+        ) {
+
+            icon.textContent =
+                "🚦";
+
+
+            title.textContent =
+                "Route Approved";
+
+
+            message.textContent =
+                `${req.route} was approved and activated.`;
+
+        }
+
+
+        // -----------------------------------------------------
+        // DENIED
+        // -----------------------------------------------------
+
+        else if (
+            req.status ===
+            "DENIED"
+        ) {
+
+            icon.textContent =
+                "❌";
+
+
+            title.textContent =
+                "Request Denied";
+
+
+            message.textContent =
+                `${req.route} was denied. No traffic signal was activated.`;
+
+        }
+
+
+        // -----------------------------------------------------
+        // ACTIVATION FAILED
+        // -----------------------------------------------------
+
+        else if (
+            req.status ===
+            "ACTIVATION_FAILED"
+        ) {
+
+            icon.textContent =
+                "⚠️";
+
+
+            title.textContent =
+                "Activation Failed";
+
+
+            message.textContent =
+                `The ${req.route} request was received, but the traffic signal could not be activated.`;
+
+        }
+
+
+        else {
+
+            icon.textContent =
+                "📋";
+
+
+            title.textContent =
+                "Request Processed";
+
+
+            message.textContent =
+                `${req.route} status: ${req.status}`;
+
+        }
+
+
+        currentRequestId =
+            null;
+
+
+        resultTimeout =
+            setTimeout(
+                () => {
+
+                    resultCard.classList.add(
+                        "hidden"
                     );
 
-                    countdown.textContent = seconds;
+                    waitingCard.classList.remove(
+                        "hidden"
+                    );
 
-                    if (seconds <= 3) {
-
-                        countdown.classList.add(
-                            "urgent"
-                        );
-
-                    } else {
-
-                        countdown.classList.remove(
-                            "urgent"
-                        );
-                    }
-                }
-
-                return;
-            }
-
-            // =================================================
-            // REQUEST PROCESSED
-            // =================================================
-
-            if (
-                req.id === currentRequestId &&
-                req.status !== "PENDING"
-            ) {
-
-                console.log(
-                    "📋 Request status changed:",
-                    req.status
-                );
-
-                if (
-                    lastStatus !== req.status
-                ) {
-
-                    lastStatus = req.status;
-
-                    showResult(req);
-                }
-            }
-
-        } catch (error) {
-
-            console.error(
-                "❌ Dashboard update failed:",
-                error
+                },
+                5000
             );
 
-        } finally {
-
-            polling = false;
-        }
     }
 
 
     // =========================================================
-    // BUTTONS
+    // CLEAR RESULT TIMER
+    // =========================================================
+
+    function clearResultTimeout() {
+
+        if (
+            resultTimeout !== null
+        ) {
+
+            clearTimeout(
+                resultTimeout
+            );
+
+            resultTimeout =
+                null;
+
+        }
+
+    }
+
+
+    // =========================================================
+    // BUTTON EVENTS
     // =========================================================
 
     acceptBtn.addEventListener(
         "click",
         acceptRequest
     );
+
 
     denyBtn.addEventListener(
         "click",
@@ -1000,24 +1405,49 @@
     async function startDashboard() {
 
         console.log(
-            "🚦 ResQRoute Admin Dashboard starting..."
+            "================================"
         );
+
+        console.log(
+            "🚦 RESQROUTE ADMIN DASHBOARD"
+        );
+
+        console.log(
+            "================================"
+        );
+
+        console.log(
+            "Backend:",
+            BACKEND_URL
+        );
+
 
         await checkBackend();
 
+
         await updateDashboard();
 
+
         console.log(
-            "🟢 Dashboard auto-update started"
+            "🟢 Dashboard auto-update ACTIVE"
         );
+
     }
 
+
+    // =========================================================
+    // START
+    // =========================================================
 
     startDashboard();
 
 
     // =========================================================
-    // AUTO UPDATE EVERY 1 SECOND
+    // AUTO UPDATE
+    //
+    // Every 1 second.
+    //
+    // No page refresh required.
     // =========================================================
 
     setInterval(
@@ -1027,7 +1457,9 @@
 
 
     // =========================================================
-    // BACKEND STATUS EVERY 5 SECONDS
+    // BACKEND HEALTH CHECK
+    //
+    // Every 5 seconds.
     // =========================================================
 
     setInterval(
