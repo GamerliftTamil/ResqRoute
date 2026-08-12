@@ -6,8 +6,15 @@ import threading
 import time
 import uuid
 
+
+# ============================================================
+# FLASK
+# ============================================================
+
 app = Flask(__name__)
 CORS(app)
+
+
 # ============================================================
 # MQTT CONFIGURATION
 # ============================================================
@@ -18,17 +25,17 @@ MQTT_PORT = 1883
 SIGNAL_TOPIC = "resqroute/traffic_signal"
 STATUS_TOPIC = "resqroute/traffic_status"
 
+
 # ============================================================
 # ADMIN REQUEST CONFIGURATION
 # ============================================================
 
-REQUEST_TIMEOUT = 10  # seconds
+REQUEST_TIMEOUT = 10
 
-# Current pending emergency request
 pending_request = None
 
-# Protect request state from multiple Flask threads
 request_lock = threading.Lock()
+
 
 # ============================================================
 # MQTT CLIENT
@@ -36,6 +43,12 @@ request_lock = threading.Lock()
 
 mqtt_client = mqtt.Client(
     mqtt.CallbackAPIVersion.VERSION2
+)
+
+# Automatically retry connection
+mqtt_client.reconnect_delay_set(
+    min_delay=2,
+    max_delay=30
 )
 
 
@@ -46,13 +59,40 @@ mqtt_client = mqtt.Client(
 def on_connect(client, userdata, flags, reason_code, properties):
 
     print()
-    print("===================================")
-    print("Connected to EMQX MQTT Broker")
-    print("===================================")
+    print("==========================================")
+    print("CONNECTED TO EMQX MQTT BROKER")
+    print("==========================================")
+    print(f"Broker: {MQTT_BROKER}:{MQTT_PORT}")
+    print(f"Signal topic: {SIGNAL_TOPIC}")
+    print(f"Status topic: {STATUS_TOPIC}")
+    print()
 
-    client.subscribe(STATUS_TOPIC)
+    # Subscribe every time we reconnect
+    result, mid = client.subscribe(
+        STATUS_TOPIC,
+        qos=1
+    )
 
-    print(f"Subscribed to: {STATUS_TOPIC}")
+    if result == mqtt.MQTT_ERR_SUCCESS:
+        print(f"Subscribed to: {STATUS_TOPIC}")
+    else:
+        print(f"⚠️ Subscription failed: {result}")
+
+    print()
+
+
+# ============================================================
+# MQTT DISCONNECT CALLBACK
+# ============================================================
+
+def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
+
+    print()
+    print("==========================================")
+    print("⚠️ MQTT DISCONNECTED")
+    print("==========================================")
+    print(f"Reason: {reason_code}")
+    print("Paho will automatically reconnect...")
     print()
 
 
@@ -69,13 +109,17 @@ def on_message(client, userdata, msg):
         payload = str(msg.payload)
 
     print()
+    print("==========================================")
     print("MQTT MESSAGE RECEIVED")
+    print("==========================================")
     print(f"Topic:   {msg.topic}")
     print(f"Payload: {payload}")
     print()
 
 
+# Register callbacks
 mqtt_client.on_connect = on_connect
+mqtt_client.on_disconnect = on_disconnect
 mqtt_client.on_message = on_message
 
 
@@ -83,17 +127,22 @@ mqtt_client.on_message = on_message
 # MQTT BACKGROUND THREAD
 # ============================================================
 
-# ============================================================
-# MQTT BACKGROUND THREAD
-# ============================================================
-
 def mqtt_loop():
+
+    print()
+    print("==========================================")
+    print("STARTING MQTT CONNECTION")
+    print("==========================================")
+    print()
 
     while True:
 
         try:
 
-            print("Connecting to MQTT broker...")
+            print(
+                f"Connecting to MQTT broker "
+                f"{MQTT_BROKER}:{MQTT_PORT}..."
+            )
 
             mqtt_client.connect(
                 MQTT_BROKER,
@@ -101,14 +150,23 @@ def mqtt_loop():
                 60
             )
 
-            print("MQTT connection established!")
+            print("MQTT socket connected.")
+            print("Starting persistent MQTT loop...")
 
-            mqtt_client.loop_forever()
+            # This stays running and handles:
+            # - incoming messages
+            # - outgoing messages
+            # - automatic reconnects
+            mqtt_client.loop_forever(
+                retry_first_connection=True
+            )
 
         except Exception as error:
 
             print()
-            print("MQTT ERROR:")
+            print("==========================================")
+            print("⚠️ MQTT CONNECTION ERROR")
+            print("==========================================")
             print(error)
             print("Retrying in 5 seconds...")
             print()
@@ -116,6 +174,7 @@ def mqtt_loop():
             time.sleep(5)
 
 
+# Start MQTT thread
 mqtt_thread = threading.Thread(
     target=mqtt_loop,
     daemon=True
@@ -123,31 +182,64 @@ mqtt_thread = threading.Thread(
 
 mqtt_thread.start()
 
+
 # ============================================================
-# SEND MQTT STATUS TO WEBSITE
+# SEND MQTT STATUS
 # ============================================================
 
 def send_status(message):
 
     if not mqtt_client.is_connected():
 
-        print("⚠️ MQTT not connected - status not sent")
+        print(
+            f"⚠️ MQTT disconnected - "
+            f"status NOT sent: {message}",
+            flush=True
+        )
+
         return False
 
-    result = mqtt_client.publish(
-        STATUS_TOPIC,
-        message,
-        qos=1
-    )
+    try:
 
-    if result.rc == mqtt.MQTT_ERR_SUCCESS:
+        result = mqtt_client.publish(
+            STATUS_TOPIC,
+            message,
+            qos=1
+        )
 
-        print(f"🌐 Status sent: {message}")
+        print(
+            f"📡 Status publish result: {result.rc}",
+            flush=True
+        )
+
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+
+            print(
+                "⚠️ Failed to publish status",
+                flush=True
+            )
+
+            return False
+
+        result.wait_for_publish(
+            timeout=5
+        )
+
+        print(
+            f"🌐 Status sent: {message}",
+            flush=True
+        )
+
         return True
 
-    print("⚠️ Failed to send status")
+    except Exception as error:
 
-    return False
+        print(
+            f"❌ Status MQTT error: {error}",
+            flush=True
+        )
+
+        return False
 
 
 # ============================================================
@@ -159,17 +251,48 @@ def activate_route(route, source):
     route = str(route).upper()
 
     if route not in ["ROUTE1", "ROUTE2"]:
-        print(f"❌ Invalid route: {route}", flush=True)
+
+        print(
+            f"❌ Invalid route: {route}",
+            flush=True
+        )
+
         return False
 
-    print(f"🔍 Attempting MQTT route: {route}", flush=True)
-    print(f"🔍 MQTT connected: {mqtt_client.is_connected()}", flush=True)
+    print()
+    print("==========================================")
+    print(f"🚦 ACTIVATING {route}")
+    print(f"Source: {source}")
+    print("==========================================")
+    print(
+        f"MQTT connected: "
+        f"{mqtt_client.is_connected()}",
+        flush=True
+    )
+
+    # --------------------------------------------------------
+    # Check MQTT
+    # --------------------------------------------------------
 
     if not mqtt_client.is_connected():
-        print("❌ MQTT broker is NOT connected", flush=True)
+
+        print(
+            "❌ MQTT broker is NOT connected",
+            flush=True
+        )
+
         return False
 
+    # --------------------------------------------------------
+    # Publish route
+    # --------------------------------------------------------
+
     try:
+
+        print(
+            f"📡 Publishing {route}...",
+            flush=True
+        )
 
         result = mqtt_client.publish(
             SIGNAL_TOPIC,
@@ -177,50 +300,58 @@ def activate_route(route, source):
             qos=1
         )
 
-        print(f"📡 MQTT publish result: {result.rc}", flush=True)
-
-        # Wait until Paho actually sends it
-        result.wait_for_publish(timeout=5)
-
         print(
-            f"📡 MQTT message sent: {route} -> {SIGNAL_TOPIC}",
+            f"📡 MQTT publish result: {result.rc}",
             flush=True
         )
 
-        print()
-        print("===================================")
-        print(f"🚦 {route} ACTIVATED")
-        print(f"Source: {source}")
-        print("===================================")
-        print()
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
 
-        send_status(
-            f"ROUTE_ACTIVATED:{route}:SOURCE={source}"
+            print(
+                f"❌ MQTT publish failed: {result.rc}",
+                flush=True
+            )
+
+            return False
+
+        # Wait for Paho to actually send it
+        result.wait_for_publish(
+            timeout=5
         )
 
-        return True
+        if not result.is_published():
+
+            print(
+                "❌ MQTT message was not confirmed "
+                "as published",
+                flush=True
+            )
+
+            return False
+
+        print(
+            f"✅ MQTT message successfully sent: "
+            f"{route}",
+            flush=True
+        )
+
+        print(
+            f"📡 Topic: {SIGNAL_TOPIC}",
+            flush=True
+        )
 
     except Exception as error:
 
-        print("❌ MQTT PUBLISH ERROR:", error, flush=True)
+        print(
+            f"❌ MQTT PUBLISH ERROR: {error}",
+            flush=True
+        )
 
         return False
 
     # --------------------------------------------------------
-    # SEND ROUTE TO ESP8266
+    # Print activation
     # --------------------------------------------------------
-
-    result = mqtt_client.publish(
-        SIGNAL_TOPIC,
-        route,
-        qos=1
-    )
-
-    if result.rc != mqtt.MQTT_ERR_SUCCESS:
-
-        print(f"❌ Failed to publish {route}")
-
-        return False
 
     print()
     print("===================================")
@@ -256,15 +387,17 @@ def create_request(route, source):
 
     with request_lock:
 
-        # ----------------------------------------------------
-        # Don't allow multiple requests simultaneously
-        # ----------------------------------------------------
-
+        # Only one request at a time
         if pending_request is not None:
 
-            return None, "Another emergency request is already pending"
+            return (
+                None,
+                "Another emergency request is already pending"
+            )
 
-        request_id = str(uuid.uuid4())[:8]
+        request_id = str(
+            uuid.uuid4()
+        )[:8]
 
         pending_request = {
 
@@ -279,6 +412,12 @@ def create_request(route, source):
             "status": "PENDING"
 
         }
+
+        request_copy = pending_request.copy()
+
+    # --------------------------------------------------------
+    # Print request
+    # --------------------------------------------------------
 
     print()
     print("===================================")
@@ -309,19 +448,20 @@ def create_request(route, source):
 
     timeout_thread.start()
 
-    return pending_request.copy(), None
+    return request_copy, None
 
 
 # ============================================================
-# TIMEOUT WORKER
+# REQUEST TIMEOUT
 # ============================================================
 
 def request_timeout_worker(request_id):
 
     global pending_request
 
-    # Wait 10 seconds
-    time.sleep(REQUEST_TIMEOUT)
+    time.sleep(
+        REQUEST_TIMEOUT
+    )
 
     with request_lock:
 
@@ -335,7 +475,6 @@ def request_timeout_worker(request_id):
             return
 
         route = pending_request["route"]
-        source = pending_request["source"]
 
         pending_request["status"] = "AUTO_APPROVED"
 
@@ -352,10 +491,6 @@ def request_timeout_worker(request_id):
     print("===================================")
     print()
 
-    # --------------------------------------------------------
-    # Activate route
-    # --------------------------------------------------------
-
     success = activate_route(
         route,
         "AUTO_TIMEOUT"
@@ -364,26 +499,26 @@ def request_timeout_worker(request_id):
     if success:
 
         send_status(
-            f"REQUEST_AUTO_APPROVED:{request_id}:{route}"
+            f"REQUEST_AUTO_APPROVED:"
+            f"{request_id}:{route}"
         )
 
     else:
 
         send_status(
-            f"REQUEST_ACTIVATION_FAILED:{request_id}:{route}"
+            f"REQUEST_ACTIVATION_FAILED:"
+            f"{request_id}:{route}"
         )
 
-    # --------------------------------------------------------
-    # Keep request visible for a little while
-    # --------------------------------------------------------
-
+    # Keep request visible briefly
     time.sleep(2)
 
     with request_lock:
 
         if (
             pending_request is not None
-            and pending_request["id"] == request_id
+            and
+            pending_request["id"] == request_id
         ):
 
             pending_request = None
@@ -414,7 +549,10 @@ def home():
 # CREATE ROUTE REQUEST
 # ============================================================
 
-@app.route("/api/route-request", methods=["POST"])
+@app.route(
+    "/api/route-request",
+    methods=["POST"]
+)
 def route_request():
 
     data = request.get_json(
@@ -454,10 +592,6 @@ def route_request():
 
     source = str(source)
 
-    # --------------------------------------------------------
-    # Create request
-    # --------------------------------------------------------
-
     new_request, error = create_request(
         route,
         source
@@ -492,7 +626,10 @@ def route_request():
 # GET CURRENT REQUEST
 # ============================================================
 
-@app.route("/api/requests", methods=["GET"])
+@app.route(
+    "/api/requests",
+    methods=["GET"]
+)
 def get_requests():
 
     with request_lock:
@@ -509,11 +646,11 @@ def get_requests():
 
         request_copy = pending_request.copy()
 
-    # --------------------------------------------------------
-    # Calculate remaining time
-    # --------------------------------------------------------
-
-    elapsed = time.time() - request_copy["created_at"]
+    elapsed = (
+        time.time()
+        -
+        request_copy["created_at"]
+    )
 
     remaining = max(
         0,
@@ -585,11 +722,8 @@ def accept_request(request_id):
 
         source = pending_request["source"]
 
-        pending_request["status"] = "APPROVED"
-
-        pending_request["decision"] = "ACCEPTED"
-
-        pending_request["decision_at"] = time.time()
+        # Don't clear the request yet
+        pending_request["status"] = "APPROVING"
 
     # --------------------------------------------------------
     # Activate route
@@ -617,6 +751,20 @@ def accept_request(request_id):
 
         }), 503
 
+    # --------------------------------------------------------
+    # Mark approved
+    # --------------------------------------------------------
+
+    with request_lock:
+
+        if pending_request is not None:
+
+            pending_request["status"] = "APPROVED"
+
+            pending_request["decision"] = "ACCEPTED"
+
+            pending_request["decision_at"] = time.time()
+
     send_status(
         f"REQUEST_APPROVED:{request_id}:{route}"
     )
@@ -630,7 +778,7 @@ def accept_request(request_id):
     print()
 
     # --------------------------------------------------------
-    # Clear after short delay
+    # Clear later
     # --------------------------------------------------------
 
     threading.Thread(
@@ -752,7 +900,8 @@ def clear_request_later(request_id):
 
         if (
             pending_request is not None
-            and pending_request["id"] == request_id
+            and
+            pending_request["id"] == request_id
         ):
 
             pending_request = None
@@ -762,7 +911,10 @@ def clear_request_later(request_id):
 # EXISTING TRAFFIC API
 # ============================================================
 
-@app.route("/api/traffic", methods=["POST"])
+@app.route(
+    "/api/traffic",
+    methods=["POST"]
+)
 def traffic_control():
 
     data = request.get_json(
@@ -795,10 +947,6 @@ def traffic_control():
 
     signal = str(signal).upper()
 
-    # --------------------------------------------------------
-    # Keep ON/OFF compatibility
-    # --------------------------------------------------------
-
     if signal not in ["ON", "OFF"]:
 
         return jsonify({
@@ -821,20 +969,42 @@ def traffic_control():
 
         }), 503
 
-    result = mqtt_client.publish(
-        SIGNAL_TOPIC,
-        signal,
-        qos=1
-    )
+    try:
 
-    if result.rc != mqtt.MQTT_ERR_SUCCESS:
+        result = mqtt_client.publish(
+            SIGNAL_TOPIC,
+            signal,
+            qos=1
+        )
+
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+
+            return jsonify({
+
+                "success": False,
+
+                "error":
+                    "Failed to publish MQTT message"
+
+            }), 500
+
+        result.wait_for_publish(
+            timeout=5
+        )
+
+    except Exception as error:
+
+        print(
+            f"❌ Traffic MQTT error: {error}",
+            flush=True
+        )
 
         return jsonify({
 
             "success": False,
 
             "error":
-                "Failed to publish MQTT message"
+                "MQTT publish failed"
 
         }), 500
 
@@ -853,7 +1023,8 @@ def traffic_control():
         "signal": signal,
 
         "message":
-            f"Traffic light command '{signal}' sent"
+            f"Traffic light command "
+            f"'{signal}' sent"
 
     })
 
@@ -890,9 +1061,9 @@ def camera_detection():
 
     detected = bool(detected)
 
-    # ========================================================
+    # --------------------------------------------------------
     # AMBULANCE DETECTED
-    # ========================================================
+    # --------------------------------------------------------
 
     if detected:
 
@@ -901,10 +1072,6 @@ def camera_detection():
         print("🚑 AMBULANCE DETECTED BY AI")
         print("===================================")
         print()
-
-        # ----------------------------------------------------
-        # Create admin request instead of immediate activation
-        # ----------------------------------------------------
 
         new_request, error = create_request(
             "ROUTE1",
@@ -939,9 +1106,9 @@ def camera_detection():
 
         })
 
-    # ========================================================
+    # --------------------------------------------------------
     # NO AMBULANCE
-    # ========================================================
+    # --------------------------------------------------------
 
     print(
         "ℹ️ Camera detection cleared"
@@ -974,12 +1141,12 @@ if __name__ == "__main__":
 
     print()
     print("==========================================")
-    print("🚑 ResQRoute Backend")
+    print("🚑 RESQROUTE BACKEND")
     print("==========================================")
-    print(f"Flask port: {port}")
-    print(f"MQTT broker: {MQTT_BROKER}")
-    print(f"Signal topic: {SIGNAL_TOPIC}")
-    print(f"Status topic: {STATUS_TOPIC}")
+    print(f"Flask port:    {port}")
+    print(f"MQTT broker:   {MQTT_BROKER}:{MQTT_PORT}")
+    print(f"Signal topic:  {SIGNAL_TOPIC}")
+    print(f"Status topic:  {STATUS_TOPIC}")
     print(f"Admin timeout: {REQUEST_TIMEOUT} seconds")
     print("==========================================")
     print()
