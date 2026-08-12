@@ -376,45 +376,82 @@ def activate_route(route, source):
 # ============================================================
 
 def create_request(route, source):
-
     global pending_request
 
     route = str(route).upper()
 
     if route not in ["ROUTE1", "ROUTE2"]:
-
         return None, "Invalid route"
+
+    now = time.time()
 
     with request_lock:
 
-        # Only one request at a time
+        # ------------------------------------------------
+        # CLEAR STALE REQUEST
+        # ------------------------------------------------
         if pending_request is not None:
 
-            return (
-                None,
+            age = now - pending_request["created_at"]
+
+            # If older than timeout + 5 seconds,
+            # consider it dead/stale.
+            if age > REQUEST_TIMEOUT + 5:
+
+                print(
+                    f"🧹 Clearing stale request: "
+                    f"{pending_request['id']}",
+                    flush=True
+                )
+
+                pending_request = None
+
+        # ------------------------------------------------
+        # CHECK AGAIN
+        # ------------------------------------------------
+        if pending_request is not None:
+
+            return None, (
                 "Another emergency request is already pending"
             )
 
-        request_id = str(
-            uuid.uuid4()
-        )[:8]
+        # ------------------------------------------------
+        # CREATE NEW REQUEST
+        # ------------------------------------------------
+        request_id = str(uuid.uuid4())[:8]
 
         pending_request = {
-
             "id": request_id,
-
             "route": route,
-
             "source": source,
-
-            "created_at": time.time(),
-
+            "created_at": now,
             "status": "PENDING"
-
         }
 
         request_copy = pending_request.copy()
 
+    print()
+    print("===================================")
+    print("🚨 NEW EMERGENCY REQUEST")
+    print(f"ID:     {request_id}")
+    print(f"Route:  {route}")
+    print(f"Source: {source}")
+    print("===================================")
+    print(flush=True)
+
+    send_status(
+        f"REQUEST_CREATED:{request_id}:{route}:{source}"
+    )
+
+    timeout_thread = threading.Thread(
+        target=request_timeout_worker,
+        args=(request_id,),
+        daemon=True
+    )
+
+    timeout_thread.start()
+
+    return request_copy, None
     # --------------------------------------------------------
     # Print request
     # --------------------------------------------------------
