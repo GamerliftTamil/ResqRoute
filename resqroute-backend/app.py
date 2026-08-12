@@ -159,14 +159,50 @@ def activate_route(route, source):
     route = str(route).upper()
 
     if route not in ["ROUTE1", "ROUTE2"]:
-
-        print(f"❌ Invalid route: {route}")
-
+        print(f"❌ Invalid route: {route}", flush=True)
         return False
 
-    if not mqtt_client.is_connected():
+    print(f"🔍 Attempting MQTT route: {route}", flush=True)
+    print(f"🔍 MQTT connected: {mqtt_client.is_connected()}", flush=True)
 
-        print("❌ MQTT broker is not connected")
+    if not mqtt_client.is_connected():
+        print("❌ MQTT broker is NOT connected", flush=True)
+        return False
+
+    try:
+
+        result = mqtt_client.publish(
+            SIGNAL_TOPIC,
+            route,
+            qos=1
+        )
+
+        print(f"📡 MQTT publish result: {result.rc}", flush=True)
+
+        # Wait until Paho actually sends it
+        result.wait_for_publish(timeout=5)
+
+        print(
+            f"📡 MQTT message sent: {route} -> {SIGNAL_TOPIC}",
+            flush=True
+        )
+
+        print()
+        print("===================================")
+        print(f"🚦 {route} ACTIVATED")
+        print(f"Source: {source}")
+        print("===================================")
+        print()
+
+        send_status(
+            f"ROUTE_ACTIVATED:{route}:SOURCE={source}"
+        )
+
+        return True
+
+    except Exception as error:
+
+        print("❌ MQTT PUBLISH ERROR:", error, flush=True)
 
         return False
 
