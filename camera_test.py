@@ -5,7 +5,7 @@ import time
 
 
 # ============================================================
-# CONFIGURATION
+#    pip install opencv-python numpy requests             CONFIGURATION
 # ============================================================
 
 CAMERA_URL = "http://192.168.0.2:8080/shot.jpg"
