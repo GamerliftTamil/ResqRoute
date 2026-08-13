@@ -1,0 +1,525 @@
+import cv2
+import numpy as np
+import requests
+import time
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+CAMERA_URL = "http://192.168.0.9:8080/shot.jpg"
+
+FLASK_URL = "http://127.0.0.1:5000/camera-detection"
+
+# Red + blue must remain detected for this long
+# before we consider it an ambulance.
+CONFIRM_TIME = 0.7
+
+# After the colors disappear for this long,
+# the system becomes ready for a new detection.
+RESET_TIME = 1.0
+
+# Minimum number of colored pixels required.
+COLOR_THRESHOLD = 500
+
+
+# ============================================================
+# HTTP SESSION
+# ============================================================
+
+session = requests.Session()
+
+session.headers.update({
+    "Connection": "keep-alive",
+    "Cache-Control": "no-cache"
+})
+
+
+# ============================================================
+# GET CAMERA FRAME
+# ============================================================
+
+def get_frame():
+
+    try:
+
+        response = session.get(
+            CAMERA_URL,
+            params={
+                "_": time.time()
+            },
+            timeout=1
+        )
+
+        if response.status_code != 200:
+            return None
+
+        image_array = np.frombuffer(
+            response.content,
+            dtype=np.uint8
+        )
+
+        frame = cv2.imdecode(
+            image_array,
+            cv2.IMREAD_COLOR
+        )
+
+        return frame
+
+    except requests.RequestException:
+
+        return None
+
+
+# ============================================================
+# DETECTION STATE
+# ============================================================
+
+detection_start = None
+
+colors_missing_since = None
+
+ambulance_confirmed = False
+
+route_triggered = False
+
+
+# ============================================================
+# START
+# ============================================================
+
+print()
+print("==========================================")
+print("🚑 ResQRoute Phone CCTV")
+print("==========================================")
+print("📱 Source: IP Webcam /shot.jpg")
+print("⚡ Fresh-frame mode")
+print("🔴 + 🔵 Ambulance Detection")
+print("🌐 Flask → MQTT → ROUTE1")
+print("==========================================")
+print()
+
+
+# ============================================================
+# MAIN LOOP
+# ============================================================
+
+try:
+
+    while True:
+
+        # ----------------------------------------------------
+        # GET FRESH CAMERA IMAGE
+        # ----------------------------------------------------
+
+        frame = get_frame()
+
+        if frame is None:
+
+            print("❌ Camera frame error")
+
+            time.sleep(0.1)
+
+            continue
+
+
+        # ====================================================
+        # CONVERT TO HSV
+        # ====================================================
+
+        hsv = cv2.cvtColor(
+            frame,
+            cv2.COLOR_BGR2HSV
+        )
+
+
+        # ====================================================
+        # RED DETECTION
+        # ====================================================
+
+        red_lower1 = np.array([
+            0,
+            100,
+            100
+        ])
+
+        red_upper1 = np.array([
+            10,
+            255,
+            255
+        ])
+
+
+        red_lower2 = np.array([
+            170,
+            100,
+            100
+        ])
+
+        red_upper2 = np.array([
+            179,
+            255,
+            255
+        ])
+
+
+        red_mask1 = cv2.inRange(
+            hsv,
+            red_lower1,
+            red_upper1
+        )
+
+        red_mask2 = cv2.inRange(
+            hsv,
+            red_lower2,
+            red_upper2
+        )
+
+        red_mask = (
+            red_mask1 |
+            red_mask2
+        )
+
+
+        # ====================================================
+        # BLUE DETECTION
+        # ====================================================
+
+        blue_lower = np.array([
+            90,
+            100,
+            100
+        ])
+
+        blue_upper = np.array([
+            130,
+            255,
+            255
+        ])
+
+
+        blue_mask = cv2.inRange(
+            hsv,
+            blue_lower,
+            blue_upper
+        )
+
+
+        # ====================================================
+        # COUNT COLORED PIXELS
+        # ====================================================
+
+        red_pixels = cv2.countNonZero(
+            red_mask
+        )
+
+        blue_pixels = cv2.countNonZero(
+            blue_mask
+        )
+
+
+        red_detected = (
+            red_pixels > COLOR_THRESHOLD
+        )
+
+        blue_detected = (
+            blue_pixels > COLOR_THRESHOLD
+        )
+
+
+        both_detected = (
+            red_detected
+            and
+            blue_detected
+        )
+
+
+        # ====================================================
+        # AMBULANCE DETECTION
+        # ====================================================
+
+        if both_detected:
+
+            # Colors are currently visible,
+            # so cancel the reset timer.
+
+            colors_missing_since = None
+
+
+            # Only start confirmation if we aren't
+            # already confirming/confirmed.
+
+            if not ambulance_confirmed:
+
+                if detection_start is None:
+
+                    detection_start = time.monotonic()
+
+
+                elapsed = (
+                    time.monotonic()
+                    -
+                    detection_start
+                )
+
+
+                # ------------------------------------------------
+                # CONFIRM AFTER CONTINUOUS DETECTION
+                # ------------------------------------------------
+
+                if elapsed >= CONFIRM_TIME:
+
+                    ambulance_confirmed = True
+
+
+                    print()
+                    print("===================================")
+                    print("🚑 AMBULANCE SIGNAL CONFIRMED!")
+                    print("===================================")
+
+
+                    # ------------------------------------------------
+                    # SEND ROUTE 1 ONLY ONCE
+                    # ------------------------------------------------
+
+                    if not route_triggered:
+
+                        print(
+                            "🌐 Sending detection to Flask..."
+                        )
+
+
+                        try:
+
+                            response = requests.post(
+                                FLASK_URL,
+                                json={
+                                    "detected": True
+                                },
+                                timeout=0.8
+                            )
+
+
+                            if response.ok:
+
+                                print(
+                                    "🟢 Flask accepted detection"
+                                )
+
+                                print(
+                                    "🚦 ROUTE 1 command sent"
+                                )
+
+
+                                # IMPORTANT:
+                                # Prevent repeated ROUTE1 messages.
+
+                                route_triggered = True
+
+
+                            else:
+
+                                print(
+                                    "❌ Flask error:",
+                                    response.status_code
+                                )
+
+
+                        except requests.RequestException as error:
+
+                            print(
+                                "❌ Could not reach Flask:",
+                                error
+                            )
+
+
+        # ====================================================
+        # RED + BLUE NOT DETECTED
+        # ====================================================
+
+        else:
+
+            # Stop the confirmation timer.
+
+            detection_start = None
+
+
+            if colors_missing_since is None:
+
+                colors_missing_since = (
+                    time.monotonic()
+                )
+
+
+            missing_time = (
+                time.monotonic()
+                -
+                colors_missing_since
+            )
+
+
+            # ------------------------------------------------
+            # RESET AFTER COLORS DISAPPEAR
+            # ------------------------------------------------
+
+            if missing_time >= RESET_TIME:
+
+                if ambulance_confirmed:
+
+                    print()
+                    print(
+                        "✅ Ambulance detection cleared."
+                    )
+                    print(
+                        "🟢 Ready for next emergency."
+                    )
+
+
+                ambulance_confirmed = False
+
+                route_triggered = False
+
+                colors_missing_since = None
+
+
+        # ====================================================
+        # DISPLAY RED STATUS
+        # ====================================================
+
+        cv2.putText(
+            frame,
+            f"RED: {'YES' if red_detected else 'NO'}",
+            (20, 35),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 255),
+            2
+        )
+
+
+        # ====================================================
+        # DISPLAY BLUE STATUS
+        # ====================================================
+
+        cv2.putText(
+            frame,
+            f"BLUE: {'YES' if blue_detected else 'NO'}",
+            (20, 70),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 0, 0),
+            2
+        )
+
+
+        # ====================================================
+        # DISPLAY AMBULANCE STATUS
+        # ====================================================
+
+        if ambulance_confirmed:
+
+            cv2.putText(
+                frame,
+                "AMBULANCE CONFIRMED",
+                (20, 115),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 0),
+                3
+            )
+
+
+        elif both_detected:
+
+            if detection_start is not None:
+
+                elapsed = (
+                    time.monotonic()
+                    -
+                    detection_start
+                )
+
+
+                cv2.putText(
+                    frame,
+                    f"VERIFYING {elapsed:.1f}s",
+                    (20, 115),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 255, 255),
+                    2
+                )
+
+
+        else:
+
+            cv2.putText(
+                frame,
+                "MONITORING",
+                (20, 115),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (200, 200, 200),
+                2
+            )
+
+
+        # ====================================================
+        # DISPLAY ROUTE STATUS
+        # ====================================================
+
+        if route_triggered:
+
+            cv2.putText(
+                frame,
+                "ROUTE 1 ACTIVATED",
+                (20, 155),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.75,
+                (0, 255, 0),
+                2
+            )
+
+
+        # ====================================================
+        # SHOW CAMERA
+        # ====================================================
+
+        cv2.imshow(
+            "ResQRoute - Phone CCTV",
+            frame
+        )
+
+
+        # ====================================================
+        # QUIT WITH Q
+        # ====================================================
+
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+
+            break
+
+
+# ============================================================
+# CTRL+C
+# ============================================================
+
+except KeyboardInterrupt:
+
+    print()
+    print("🛑 Stopping ResQRoute CCTV...")
+
+
+# ============================================================
+# CLEANUP
+# ============================================================
+
+finally:
+
+    session.close()
+
+    cv2.destroyAllWindows()
+
+    print("Camera system stopped.")
+
