@@ -1,0 +1,744 @@
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
+// ============================================================
+// RESQROUTE ESP8266
+// ============================================================
+//
+// LED WIRING:
+//
+// D1 -> Left Signal 1 GREEN
+// D2 -> Left Signal 2 RED
+// D3 -> Left Signal 1 RED
+// D4 -> Right GREEN
+// D5 -> Left Signal 2 GREEN
+// D6 -> Right RED
+//
+// MQTT:
+// Broker: broker.emqx.io
+// Port:   1883
+// Topic:  resqroute/traffic_signal
+//
+// Accepted commands:
+// ROUTE1
+// ROUTE2
+//
+// ROUTE1:
+// Signal 1 GREEN = 2 seconds
+// Signal 2 GREEN = 5 seconds
+//
+// ROUTE2:
+// Right GREEN = 8 seconds
+// ============================================================
+
+
+// ============================================================
+// WIFI CONFIGURATION
+// ============================================================
+
+const char* WIFI_SSID     = "YOUR_WIFI_NAME";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+
+
+// ============================================================
+// MQTT CONFIGURATION
+// ============================================================
+
+const char* MQTT_SERVER = "broker.emqx.io";
+const int   MQTT_PORT   = 1883;
+
+const char* MQTT_TOPIC = "resqroute/traffic_signal";
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+
+
+// ============================================================
+// LED PINS
+// ============================================================
+
+// LEFT SIDE - SIGNAL 1
+#define LEFT1_GREEN D1
+#define LEFT1_RED   D3
+
+// LEFT SIDE - SIGNAL 2
+#define LEFT2_GREEN D5
+#define LEFT2_RED   D2
+
+// RIGHT SIDE
+#define RIGHT_GREEN D4
+#define RIGHT_RED   D6
+
+
+// ============================================================
+// ROUTE STATES
+// ============================================================
+
+enum RouteState {
+
+  NORMAL,
+
+  ROUTE1_SIGNAL1,
+  ROUTE1_SIGNAL2,
+
+  ROUTE2_ACTIVE
+};
+
+RouteState routeState = NORMAL;
+
+unsigned long stateStartTime = 0;
+
+
+// ============================================================
+// WIFI RECONNECT TIMER
+// ============================================================
+
+unsigned long lastWiFiAttempt = 0;
+
+const unsigned long WIFI_RETRY_INTERVAL = 10000;
+
+
+// ============================================================
+// MQTT RECONNECT TIMER
+// ============================================================
+
+unsigned long lastMQTTAttempt = 0;
+
+const unsigned long MQTT_RETRY_INTERVAL = 5000;
+
+
+// ============================================================
+// NORMAL TRAFFIC STATE
+// ============================================================
+
+void normalState() {
+
+  // -------------------------------
+  // LEFT SIGNAL 1
+  // -------------------------------
+
+  digitalWrite(LEFT1_GREEN, LOW);
+  digitalWrite(LEFT1_RED, HIGH);
+
+
+  // -------------------------------
+  // LEFT SIGNAL 2
+  // -------------------------------
+
+  digitalWrite(LEFT2_GREEN, LOW);
+  digitalWrite(LEFT2_RED, HIGH);
+
+
+  // -------------------------------
+  // RIGHT SIGNAL
+  // -------------------------------
+
+  digitalWrite(RIGHT_GREEN, LOW);
+  digitalWrite(RIGHT_RED, HIGH);
+
+
+  routeState = NORMAL;
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("🚦 NORMAL TRAFFIC STATE");
+  Serial.println("================================");
+}
+
+
+// ============================================================
+// START ROUTE 1
+// ============================================================
+
+void activateRoute1() {
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("🚑 ROUTE1 ACTIVATED");
+  Serial.println("================================");
+
+
+  // -------------------------------
+  // LEFT SIGNAL 1 -> GREEN
+  // -------------------------------
+
+  digitalWrite(LEFT1_RED, LOW);
+  digitalWrite(LEFT1_GREEN, HIGH);
+
+
+  // -------------------------------
+  // LEFT SIGNAL 2 -> RED
+  // -------------------------------
+
+  digitalWrite(LEFT2_GREEN, LOW);
+  digitalWrite(LEFT2_RED, HIGH);
+
+
+  // -------------------------------
+  // RIGHT -> RED
+  // -------------------------------
+
+  digitalWrite(RIGHT_GREEN, LOW);
+  digitalWrite(RIGHT_RED, HIGH);
+
+
+  routeState = ROUTE1_SIGNAL1;
+
+  stateStartTime = millis();
+
+
+  Serial.println("🟢 LEFT SIGNAL 1 GREEN");
+  Serial.println("⏱️ Duration: 2 seconds");
+}
+
+
+// ============================================================
+// START ROUTE 2
+// ============================================================
+
+void activateRoute2() {
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("🚑 ROUTE2 ACTIVATED");
+  Serial.println("================================");
+
+
+  // -------------------------------
+  // LEFT SIGNAL 1 -> RED
+  // -------------------------------
+
+  digitalWrite(LEFT1_GREEN, LOW);
+  digitalWrite(LEFT1_RED, HIGH);
+
+
+  // -------------------------------
+  // LEFT SIGNAL 2 -> RED
+  // -------------------------------
+
+  digitalWrite(LEFT2_GREEN, LOW);
+  digitalWrite(LEFT2_RED, HIGH);
+
+
+  // -------------------------------
+  // RIGHT -> GREEN
+  // -------------------------------
+
+  digitalWrite(RIGHT_RED, LOW);
+  digitalWrite(RIGHT_GREEN, HIGH);
+
+
+  routeState = ROUTE2_ACTIVE;
+
+  stateStartTime = millis();
+
+
+  Serial.println("🟢 RIGHT GREEN");
+  Serial.println("⏱️ Duration: 8 seconds");
+}
+
+
+// ============================================================
+// MQTT MESSAGE RECEIVED
+// ============================================================
+
+void mqttCallback(
+  char* topic,
+  byte* payload,
+  unsigned int length
+) {
+
+  String message = "";
+
+  for (unsigned int i = 0; i < length; i++) {
+
+    message += (char)payload[i];
+  }
+
+  message.trim();
+
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("📨 MQTT MESSAGE RECEIVED");
+  Serial.println("================================");
+
+  Serial.print("Topic: ");
+  Serial.println(topic);
+
+  Serial.print("Payload: ");
+  Serial.println(message);
+
+
+  // ==========================================================
+  // ROUTE 1
+  // ==========================================================
+
+  if (message == "ROUTE1") {
+
+    activateRoute1();
+
+  }
+
+
+  // ==========================================================
+  // ROUTE 2
+  // ==========================================================
+
+  else if (message == "ROUTE2") {
+
+    activateRoute2();
+
+  }
+
+
+  // ==========================================================
+  // UNKNOWN COMMAND
+  // ==========================================================
+
+  else {
+
+    Serial.println("⚠️ UNKNOWN COMMAND");
+  }
+}
+
+
+// ============================================================
+// CONNECT WIFI
+// ============================================================
+
+void connectWiFi() {
+
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
+  }
+
+
+  Serial.println();
+  Serial.println("📡 Connecting to Wi-Fi...");
+
+
+  WiFi.mode(WIFI_STA);
+
+  WiFi.setAutoReconnect(true);
+
+  WiFi.persistent(false);
+
+
+  WiFi.begin(
+    WIFI_SSID,
+    WIFI_PASSWORD
+  );
+
+
+  unsigned long startTime = millis();
+
+
+  while (
+    WiFi.status() != WL_CONNECTED &&
+    millis() - startTime < 15000
+  ) {
+
+    delay(500);
+
+    Serial.print(".");
+  }
+
+
+  Serial.println();
+
+
+  if (WiFi.status() == WL_CONNECTED) {
+
+    Serial.println("✅ Wi-Fi CONNECTED");
+
+    Serial.print("IP Address: ");
+
+    Serial.println(
+      WiFi.localIP()
+    );
+
+    Serial.print("Signal strength: ");
+
+    Serial.print(
+      WiFi.RSSI()
+    );
+
+    Serial.println(" dBm");
+
+  }
+
+  else {
+
+    Serial.println("❌ Wi-Fi connection failed");
+
+    Serial.print("Wi-Fi status: ");
+
+    Serial.println(
+      WiFi.status()
+    );
+  }
+}
+
+
+// ============================================================
+// CONNECT MQTT
+// ============================================================
+
+void connectMQTT() {
+
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+
+  if (mqttClient.connected()) {
+    return;
+  }
+
+
+  Serial.println();
+  Serial.println("📡 Connecting to MQTT...");
+
+
+  String clientID =
+    "ResQRoute_ESP8266_";
+
+  clientID += String(
+    ESP.getChipId(),
+    HEX
+  );
+
+
+  if (
+    mqttClient.connect(
+      clientID.c_str()
+    )
+  ) {
+
+    Serial.println("✅ MQTT CONNECTED");
+
+
+    bool subscribed =
+      mqttClient.subscribe(
+        MQTT_TOPIC
+      );
+
+
+    if (subscribed) {
+
+      Serial.print("✅ SUBSCRIBED: ");
+
+      Serial.println(
+        MQTT_TOPIC
+      );
+
+    }
+
+    else {
+
+      Serial.println(
+        "❌ MQTT SUBSCRIBE FAILED"
+      );
+    }
+
+  }
+
+  else {
+
+    Serial.print(
+      "❌ MQTT CONNECTION FAILED. State: "
+    );
+
+    Serial.println(
+      mqttClient.state()
+    );
+  }
+}
+
+
+// ============================================================
+// UPDATE ROUTE SEQUENCE
+// ============================================================
+
+void updateRouteSequence() {
+
+  unsigned long elapsed =
+    millis() - stateStartTime;
+
+
+  // ==========================================================
+  // ROUTE1 - SIGNAL 1
+  // ==========================================================
+
+  if (
+    routeState ==
+    ROUTE1_SIGNAL1
+  ) {
+
+    if (elapsed >= 2000) {
+
+      // Signal 1 back to RED
+
+      digitalWrite(
+        LEFT1_GREEN,
+        LOW
+      );
+
+      digitalWrite(
+        LEFT1_RED,
+        HIGH
+      );
+
+
+      // Signal 2 -> GREEN
+
+      digitalWrite(
+        LEFT2_RED,
+        LOW
+      );
+
+      digitalWrite(
+        LEFT2_GREEN,
+        HIGH
+      );
+
+
+      routeState =
+        ROUTE1_SIGNAL2;
+
+      stateStartTime =
+        millis();
+
+
+      Serial.println();
+      Serial.println(
+        "➡️ ROUTE1: SIGNAL 1 COMPLETE"
+      );
+
+      Serial.println(
+        "🟢 LEFT SIGNAL 2 GREEN"
+      );
+
+      Serial.println(
+        "⏱️ Duration: 5 seconds"
+      );
+    }
+  }
+
+
+  // ==========================================================
+  // ROUTE1 - SIGNAL 2
+  // ==========================================================
+
+  else if (
+    routeState ==
+    ROUTE1_SIGNAL2
+  ) {
+
+    if (elapsed >= 5000) {
+
+      Serial.println();
+      Serial.println(
+        "⏱️ ROUTE1 COMPLETE"
+      );
+
+      normalState();
+    }
+  }
+
+
+  // ==========================================================
+  // ROUTE2
+  // ==========================================================
+
+  else if (
+    routeState ==
+    ROUTE2_ACTIVE
+  ) {
+
+    if (elapsed >= 8000) {
+
+      Serial.println();
+      Serial.println(
+        "⏱️ ROUTE2 COMPLETE"
+      );
+
+      normalState();
+    }
+  }
+}
+
+
+// ============================================================
+// SETUP
+// ============================================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  delay(500);
+
+
+  Serial.println();
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("🚦 RESQROUTE ESP8266");
+  Serial.println("================================");
+
+
+  // ==========================================================
+  // LED OUTPUTS
+  // ==========================================================
+
+  pinMode(
+    LEFT1_GREEN,
+    OUTPUT
+  );
+
+  pinMode(
+    LEFT1_RED,
+    OUTPUT
+  );
+
+  pinMode(
+    LEFT2_GREEN,
+    OUTPUT
+  );
+
+  pinMode(
+    LEFT2_RED,
+    OUTPUT
+  );
+
+  pinMode(
+    RIGHT_GREEN,
+    OUTPUT
+  );
+
+  pinMode(
+    RIGHT_RED,
+    OUTPUT
+  );
+
+
+  // ==========================================================
+  // SAFE STARTUP
+  // ==========================================================
+
+  normalState();
+
+
+  // ==========================================================
+  // MQTT SETUP
+  // ==========================================================
+
+  mqttClient.setServer(
+    MQTT_SERVER,
+    MQTT_PORT
+  );
+
+  mqttClient.setCallback(
+    mqttCallback
+  );
+
+
+  // ==========================================================
+  // WIFI
+  // ==========================================================
+
+  connectWiFi();
+
+
+  // ==========================================================
+  // MQTT
+  // ==========================================================
+
+  connectMQTT();
+
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("🚦 SYSTEM READY");
+  Serial.println("================================");
+}
+
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+
+void loop() {
+
+  // ==========================================================
+  // WIFI RECONNECT
+  // ==========================================================
+
+  if (
+    WiFi.status() != WL_CONNECTED
+  ) {
+
+    mqttClient.disconnect();
+
+
+    if (
+      millis() - lastWiFiAttempt
+      >= WIFI_RETRY_INTERVAL
+    ) {
+
+      lastWiFiAttempt =
+        millis();
+
+      Serial.println();
+      Serial.println(
+        "⚠️ Wi-Fi disconnected"
+      );
+
+      connectWiFi();
+    }
+  }
+
+
+  // ==========================================================
+  // MQTT RECONNECT
+  // ==========================================================
+
+  if (
+    WiFi.status() ==
+    WL_CONNECTED
+  ) {
+
+    if (
+      !mqttClient.connected()
+    ) {
+
+      if (
+        millis() - lastMQTTAttempt
+        >= MQTT_RETRY_INTERVAL
+      ) {
+
+        lastMQTTAttempt =
+          millis();
+
+        connectMQTT();
+      }
+    }
+
+    else {
+
+      mqttClient.loop();
+    }
+  }
+
+
+  // ==========================================================
+  // TRAFFIC LIGHT SEQUENCE
+  // ==========================================================
+
+  updateRouteSequence();
+
+
+  // Keep ESP responsive
+  delay(10);
+}
