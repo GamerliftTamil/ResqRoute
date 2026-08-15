@@ -5,10 +5,10 @@ import time
 
 
 # ============================================================
-#    pip install opencv-python numpy requests             CONFIGURATION
+# CONFIGURATION
 # ============================================================
 
-CAMERA_URL = "http://192.168.0.2:8080/shot.jpg"
+CAMERA_URL = "http://192.168.0.6:8080/shot.jpg"
 FLASK_URL = "https://resqroute-wdnu.onrender.com/camera-detection"
 # Red + blue must remain detected for this long
 # before we consider it an ambulance.
